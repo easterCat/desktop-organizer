@@ -2,11 +2,11 @@
   <img src="assets/icon.ico" width="96" alt="Desktop Organizer Icon">
 </p>
 
-<h1 align="center">Desktop Organizer</h1>
+<h1 align="center">Windows Desktop Organizer</h1>
 
 <p align="center">
-  <strong>Windows Desktop Shortcut Organizer</strong><br>
-  Categorize, manage, and access your desktop shortcuts with style.
+  <strong>Desktop Shortcut Manager & Floating Widget</strong><br>
+  A Windows desktop organizer that categorizes, manages, and gives you instant access to shortcuts with style.
 </p>
 
 <p align="center">
@@ -20,9 +20,29 @@
   <img src="https://img.shields.io/badge/version-1.1.0-orange" alt="Version">
 </p>
 
+<p align="center">
+  <a href="https://github.com/easterCat/desktop-organizer/releases/latest">
+    <img src="https://img.shields.io/badge/⬇️_Download-latest_release-blue?style=for-the-badge" alt="Download">
+  </a>
+</p>
+
 ---
 
-A Windows desktop application built with **Electron** that lets you organize desktop shortcuts (`.lnk` / `.url`) into customizable "boxes" — with floating desktop widgets, quick-organize, icon caching, and a glass-morphism dark UI.
+### 🎬 Demo
+
+<p align="center">
+  <img src="screenshots/demo.gif" width="800" alt="Desktop Organizer Demo">
+</p>
+
+<details>
+<summary>📺 视频演示 (Video Demo)</summary>
+<p align="center">
+  <!-- 如有录制视频，替换为视频链接 -->
+  <!-- <a href="https://youtu.be/your-video-id"><img src="screenshots/video-thumbnail.png" width="800" alt="Video Demo"></a> -->
+</p>
+</details>
+
+A **Windows desktop organizer** built with Electron that turns your desktop into a clean, organized workspace. This **desktop shortcut manager** lets you sort `.lnk` / `.url` files into customizable "boxes" — with **floating desktop widget** panels, quick-organize, icon caching, and a glass-morphism dark UI.
 
 ## Screenshots
 
@@ -57,6 +77,10 @@ On first run, the settings panel helps you configure the desktop path and displa
 <p align="center">
   <img src="screenshots/initial-launch.png" width="800" alt="Initial Launch">
 </p>
+
+## Why Desktop Organizer?
+
+Windows desktops inevitably become cluttered with shortcuts over time. **Desktop Organizer** lets you categorize everything into custom "boxes" — drag and drop shortcuts, pin frequently-used apps as floating widgets on your desktop, and keep your workspace clean with one-click quick organize. No more hunting through dozens of icons.
 
 ## Features
 
@@ -271,3 +295,7 @@ Application data is stored in `%APPDATA%/desktop-organizer/`:
 ## License
 
 [MIT](LICENSE)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=easterCat/desktop-organizer&type=Date)](https://star-history.com/#easterCat/desktop-organizer&Date)

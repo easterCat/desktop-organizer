@@ -1,0 +1,38 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.1.0] - 2026-06-05
+
+### Added
+
+- **Floating Desktop Widgets** — Pin any box to the desktop as a transparent, always-on-top widget panel
+- **Drag & Drop Reordering** — Reorder shortcuts within and across boxes via drag and drop
+- **Box Collapse/Expand** — Toggle box content visibility to save screen space
+- **System Tray Integration** — Minimize to tray on close; quick-access tray menu with one-click organize
+- **Keyboard Shortcuts** — `Ctrl+F` search, `Ctrl+N` new box, `Ctrl+R` refresh, `Ctrl+Shift+O` quick organize
+- **Quick Organize** — Auto-categorize unassigned shortcuts via keyword matching against box names
+- **Icon Caching** — Multi-level icon cache (MD5-keyed, mtime-validated) for fast startup
+- **Activity Log** — Track all user actions (move, create, delete, rename) with timestamps (max 200 entries)
+- **Status Bar** — Real-time disk usage, memory usage, box/item counts
+- **README screenshots and badges** — Added visual documentation and version badges
+
+### Changed
+
+- Updated version badges and screenshots to reflect v1.1.0
+
+## [1.0.0] - 2026-06-05
+
+### Added
+
+- Initial release of Windows Desktop Organizer
+- **Shortcut Scanning** — Automatically scan user & public desktop folders for `.lnk` and `.url` files
+- **Smart Categorization** — Create named boxes and organize shortcuts into categories
+- **Icon Extraction** — Extract program icons from `.exe`, `.dll`, `.ico` via PowerShell
+- **Glass-morphism Dark UI** — Modern dark theme with backdrop-filter blur
+- **Configuration Management** — Persistent box configurations stored in `%APPDATA%/desktop-organizer/`
+- **Electron 28.3.3** based architecture with main/renderer/desktop-box processes
+- **PowerShell Integration** — `.lnk` parsing via WScript.Shell COM and icon extraction via System.Drawing

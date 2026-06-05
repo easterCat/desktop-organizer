@@ -1,6 +1,6 @@
 {
   "name": "desktop-organizer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Windows桌面图标收纳盒 - 归类整理桌面快捷方式",
   "main": "src/main.js",
   "scripts": {
@@ -13,7 +13,8 @@
   "devDependencies": {
     "electron": "28.3.3",
     "electron-builder": "^24.9.0",
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "puppeteer-core": "^25.1.0"
   },
   "dependencies": {
     "fs-extra": "^11.2.0"
