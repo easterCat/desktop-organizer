@@ -2,11 +2,11 @@
   <img src="assets/icon.ico" width="96" alt="桌面图标收纳盒">
 </p>
 
-<h1 align="center">桌面图标收纳盒</h1>
+<h1 align="center">Windows 桌面图标整理工具</h1>
 
 <p align="center">
-  <strong>Windows 桌面快捷方式收纳管理工具</strong><br>
-  分类整理、高效管理、一键直达你的桌面快捷方式
+  <strong>桌面快捷方式管理 & 浮动小组件</strong><br>
+  一款 Windows 桌面图标整理工具，帮你分类收纳、高效管理、一键直达桌面快捷方式。
 </p>
 
 <p align="center">
@@ -20,9 +20,29 @@
   <img src="https://img.shields.io/badge/version-1.1.0-orange" alt="Version">
 </p>
 
+<p align="center">
+  <a href="https://github.com/easterCat/desktop-organizer/releases/latest">
+    <img src="https://img.shields.io/badge/⬇️_下载最新版-blue?style=for-the-badge" alt="下载最新版">
+  </a>
+</p>
+
 ---
 
-一款基于 **Electron** 构建的 Windows 桌面应用，让你将桌面快捷方式（`.lnk` / `.url`）整理到自定义「收纳盒」中——支持桌面浮动窗口、快速整理、图标缓存、毛玻璃暗色主题 UI。
+### 🎬 演示
+
+<p align="center">
+  <img src="screenshots/demo.gif" width="800" alt="桌面图标收纳盒演示">
+</p>
+
+<details>
+<summary>📺 视频演示</summary>
+<p align="center">
+  <!-- 如有录制视频，替换为视频链接 -->
+  <!-- <a href="https://youtu.be/your-video-id"><img src="screenshots/video-thumbnail.png" width="800" alt="视频演示"></a> -->
+</p>
+</details>
+
+一款基于 **Electron** 构建的 **Windows 桌面图标整理工具**，让你把桌面快捷方式（`.lnk` / `.url`）归类到自定义「收纳盒」中。核心功能包括 **桌面浮动小组件**（floating desktop widget）实时展示、快捷方式一键整理、图标智能缓存，以及毛玻璃暗色主题 UI。
 
 ## 界面截图
 
@@ -57,6 +77,10 @@
 <p align="center">
   <img src="screenshots/initial-launch.png" width="800" alt="首次启动">
 </p>
+
+## 为什么需要桌面图标收纳盒？
+
+Windows 桌面随着时间推移总会堆满图标，找东西越来越费劲。**桌面图标收纳盒** 让你一键分类，把常用软件放进自定义收纳盒，还能以浮动窗口形式钉在桌面上随时取用，保持桌面整洁清爽。
 
 ## 功能特性
 
@@ -271,3 +295,7 @@ desktop-organizer/
 ## 开源协议
 
 [MIT](LICENSE)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=easterCat/desktop-organizer&type=Date)](https://star-history.com/#easterCat/desktop-organizer&Date)
