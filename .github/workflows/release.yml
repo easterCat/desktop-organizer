@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-win:
@@ -31,7 +32,7 @@ jobs:
           name: dist
           path: |
             dist/*.exe
-            dist/*.nsis
+            dist/*.zip
           if-no-files-found: error
 
   release:
