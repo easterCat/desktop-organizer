@@ -31,7 +31,7 @@
 ### 🎬 演示
 
 <p align="center">
-  <img src="screenshots/demo.gif" width="800" alt="桌面图标收纳盒演示">
+  <img src="screenshots/main-window.png" width="800" alt="桌面图标收纳盒演示">
 </p>
 
 <details>
