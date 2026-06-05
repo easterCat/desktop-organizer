@@ -26,9 +26,17 @@
   </a>
 </p>
 
----
+ ### 下载
 
-### 🎬 演示
+ | 版本 | 文件 | 链接 |
+ |------|------|------|
+ | v1.2.3 (Latest) | 桌面图标收纳盒 Setup 1.2.3.exe | [直接下载](https://github.com/easterCat/desktop-organizer/releases/download/v1.2.3/Setup.1.2.3.exe) |
+
+ [查看所有版本](https://github.com/easterCat/desktop-organizer/releases)
+
+ ---
+
+ ### 🎬 演示
 
 <p align="center">
   <img src="screenshots/main-window.png" width="800" alt="桌面图标收纳盒演示">
