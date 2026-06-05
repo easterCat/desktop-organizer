@@ -1,0 +1,37 @@
+{
+  "name": "desktop-organizer",
+  "version": "1.0.0",
+  "description": "Windows桌面图标收纳盒 - 归类整理桌面快捷方式",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "build": "electron-builder --win",
+    "pack": "electron-builder --dir"
+  },
+  "author": "Halo",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "28.3.3",
+    "electron-builder": "^24.9.0"
+  },
+  "dependencies": {
+    "fs-extra": "^11.2.0"
+  },
+  "build": {
+    "appId": "com.halo.desktop-organizer",
+    "productName": "桌面图标收纳盒",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ]
+  }
+}

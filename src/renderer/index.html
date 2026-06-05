@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Desktop Organizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="titlebar-drag">
+      <span class="app-mark"></span>
+      <span class="app-title">Desktop Organizer</span>
+    </div>
+    <div class="titlebar-controls">
+      <button type="button" class="win-btn" id="btn-minimize"></button>
+      <button type="button" class="win-btn" id="btn-maximize"></button>
+      <button type="button" class="win-btn win-btn-close" id="btn-close"></button>
+    </div>
+  </div>
+
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <button type="button" class="btn-create" id="btn-add-box">+ 新建</button>
+    <button type="button" class="btn-icon-only" id="btn-refresh" title="刷新">↻</button>
+    <button type="button" class="btn-icon-only" id="btn-quick-organize" title="快速整理">⚡</button>
+    <div class="toolbar-sep"></div>
+    <div class="search-wrap">
+      <svg class="search-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>
+      <input type="text" id="search-input" placeholder="搜索... (Ctrl+F)" />
+    </div>
+    <div class="toolbar-right">
+      <button type="button" class="btn-icon-only" id="btn-activity-log" title="活动日志">📋</button>
+      <button type="button" class="btn-icon-only" id="btn-settings" title="设置">⚙️</button>
+    </div>
+  </div>
+
+  <!-- 主内容 -->
+  <div class="main-content">
+    <div class="unassigned-section" id="unassigned-section">
+      <div class="section-head">
+        <span class="section-label">未分类</span>
+        <span class="section-count" id="unassigned-count">0</span>
+      </div>
+      <div class="shortcuts-grid" id="unassigned-grid"></div>
+    </div>
+    <div class="boxes-container" id="boxes-container"></div>
+  </div>
+
+  <!-- 新建收纳盒对话框 -->
+  <div class="modal-overlay" id="modal-add-box" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="modal-title">新建收纳盒</span>
+        <button type="button" class="modal-x" id="modal-close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <span class="field-label">名称</span>
+          <input type="text" class="field-input" id="input-box-name" placeholder="例如：办公、游戏、开发" />
+        </div>
+        <div class="field">
+          <span class="field-label">显示方式</span>
+          <div class="mode-group" id="display-mode-picker">
+            <span class="mode-opt selected" data-mode="panel">面板内</span>
+            <span class="mode-opt" data-mode="desktop">桌面浮动</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">图标</span>
+          <div class="icon-row" id="icon-picker">
+            <span class="icon-opt selected" data-icon="📁">📁</span>
+            <span class="icon-opt" data-icon="💼">💼</span>
+            <span class="icon-opt" data-icon="🎮">🎮</span>
+            <span class="icon-opt" data-icon="🛠">🛠</span>
+            <span class="icon-opt" data-icon="🌐">🌐</span>
+            <span class="icon-opt" data-icon="🎵">🎵</span>
+            <span class="icon-opt" data-icon="📚">📚</span>
+            <span class="icon-opt" data-icon="🎨">🎨</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">色调</span>
+          <div class="tone-row" id="color-picker">
+            <span class="tone-opt selected" data-color="#888" style="background:linear-gradient(135deg,#666,#aaa)"></span>
+            <span class="tone-opt" data-color="#5b5fc7" style="background:linear-gradient(135deg,#4a4eb5,#7c80e0)"></span>
+            <span class="tone-opt" data-color="#3da" style="background:linear-gradient(135deg,#2cb,#5ed)"></span>
+            <span class="tone-opt" data-color="#d45" style="background:linear-gradient(135deg,#c34,#f68)"></span>
+            <span class="tone-opt" data-color="#e90" style="background:linear-gradient(135deg,#d80,#fc2)"></span>
+            <span class="tone-opt" data-color="#c3f" style="background:linear-gradient(135deg,#b0e,#d6f)"></span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="modal-cancel">取消</button>
+        <button type="button" class="btn-solid" id="modal-confirm">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名对话框 -->
+  <div class="modal-overlay" id="modal-rename-box" style="display:none;">
+    <div class="modal" style="width:340px;">
+      <div class="modal-head">
+        <span class="modal-title">重命名收纳盒</span>
+        <button type="button" class="modal-x" id="modal-rename-close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <span class="field-label">新名称</span>
+          <input type="text" class="field-input" id="input-rename-box" placeholder="请输入新名称" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="modal-rename-cancel">取消</button>
+        <button type="button" class="btn-solid" id="modal-rename-confirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div class="ctx-menu" id="context-menu" style="display:none;">
+    <div class="ctx-item" data-action="open">打开</div>
+    <div class="ctx-item" data-action="explorer">打开文件位置</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="move">移动到...</div>
+    <div class="ctx-item ctx-danger" data-action="remove">移出收纳盒</div>
+  </div>
+  <div class="ctx-menu" id="move-menu" style="display:none;"></div>
+
+  <!-- P2: 设置面板 -->
+  <div class="modal-overlay" id="modal-settings" style="display:none;">
+    <div class="modal" style="width:420px;">
+      <div class="modal-head">
+        <span class="modal-title">⚙️ 设置</span>
+        <button type="button" class="modal-x" id="modal-settings-close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <span class="field-label">桌面路径</span>
+          <div class="path-picker">
+            <input type="text" class="field-input" id="input-desktop-path" placeholder="桌面路径" readonly />
+            <button type="button" class="btn-icon-only btn-path-browse" id="btn-browse-path" title="浏览">📁</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">应用信息</span>
+          <div class="settings-info">
+            <div class="info-row"><span>版本</span><span id="info-version">1.0.0</span></div>
+            <div class="info-row"><span>收纳盒数量</span><span id="info-box-count">0</span></div>
+            <div class="info-row"><span>已分类图标</span><span id="info-classified-count">0</span></div>
+            <div class="info-row"><span>未分类图标</span><span id="info-unassigned-count">0</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="modal-settings-cancel">关闭</button>
+        <button type="button" class="btn-solid" id="modal-settings-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- P2: 活动日志面板 -->
+  <div class="modal-overlay" id="modal-activity-log" style="display:none;">
+    <div class="modal" style="width:480px;max-height:70vh;">
+      <div class="modal-head">
+        <span class="modal-title">📋 活动日志</span>
+        <button type="button" class="modal-x" id="modal-log-close"></button>
+      </div>
+      <div class="modal-body" style="max-height:50vh;overflow-y:auto;padding:12px 16px;">
+        <div class="log-list" id="activity-log-list">
+          <div class="empty-state">暂无活动记录</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="btn-clear-log">清空日志</button>
+        <button type="button" class="btn-ghost" id="modal-log-close-btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CODE-05: 自定义确认对话框 -->
+  <div class="modal-overlay" id="modal-confirm" style="display:none;">
+    <div class="modal" style="width:340px;">
+      <div class="modal-head">
+        <span class="modal-title" id="confirm-title">确认</span>
+        <button type="button" class="modal-x" id="confirm-close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message" style="font-size:12.5px;color:var(--text2);line-height:1.6;"></p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="confirm-cancel">取消</button>
+        <button type="button" class="btn-solid" id="confirm-ok"
+                style="background:rgba(224,85,85,0.2);">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- P2: 状态栏 -->
+  <div class="status-bar" id="status-bar">
+    <div class="status-left">
+      <span class="status-item" id="status-box-count" title="收纳盒数量">📦 0</span>
+      <span class="status-item" id="status-total-count" title="总快捷方式">📄 0</span>
+      <span class="status-item" id="status-unassigned-count" title="未分类">❓ 0</span>
+    </div>
+    <div class="status-center">
+      <div class="disk-usage-wrap" id="disk-usage-wrap" title="磁盘使用率">
+        <span class="disk-label">磁盘</span>
+        <div class="disk-bar">
+          <div class="disk-bar-fill" id="disk-bar-fill"></div>
+        </div>
+        <span class="disk-text" id="disk-text">--</span>
+      </div>
+    </div>
+    <div class="status-right">
+      <span class="status-item" id="status-mem" title="内存使用">💾 --</span>
+      <span class="status-item status-time" id="status-last-organize" title="上次整理时间">🕐 --</span>
+    </div>
+  </div>
+
+  <script src="../utils.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

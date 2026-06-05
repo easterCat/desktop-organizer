@@ -1,0 +1,71 @@
+# ==================== 依赖目录 ====================
+node_modules/
+
+# ==================== 构建产物 ====================
+dist/
+out/
+release/
+build/
+*.asar
+*.blockmap
+builder-debug.yml
+builder-effective-config.yaml
+
+# ==================== 环境与密钥 ====================
+.env
+.env.*
+!.env.example
+
+# ==================== 日志文件 ====================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==================== 临时文件 ====================
+*.tmp
+*.temp
+*.bak
+*.bak.*
+*.swp
+*.swo
+*~
+
+# ==================== 操作系统生成文件 ====================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ==================== 编辑器 / IDE ====================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ==================== 代码图谱工具 ====================
+.codegraph/
+
+# ==================== 测试与覆盖率 ====================
+coverage/
+.nyc_output/
+*.lcov
+
+# ==================== 本地配置 ====================
+.pnpm-store/
+.eslintcache
+.stylelintcache

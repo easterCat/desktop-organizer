@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Box</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glass" id="glass-box">
+    <div class="glass-head" id="box-titlebar">
+      <span class="head-icon" id="box-emoji">📁</span>
+      <span class="head-label" id="box-label">Box</span>
+      <span class="head-count" id="box-count">0</span>
+      <div class="head-ctrl">
+        <button class="dot dot-min" id="btn-collapse"></button>
+        <button class="dot dot-close" id="btn-close-box"></button>
+      </div>
+    </div>
+    <div class="glass-body" id="box-items">
+      <div class="drop-zone" id="drop-hint">
+        <span class="drop-text">拖入图标</span>
+      </div>
+    </div>
+  </div>
+  <script src="../utils.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
