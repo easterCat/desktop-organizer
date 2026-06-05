@@ -26,9 +26,17 @@
   </a>
 </p>
 
----
+ ### Download
 
-### 🎬 Demo
+ | Version | File | Link |
+ |---------|------|------|
+ | v1.2.3 (Latest) | 桌面图标收纳盒 Setup 1.2.3.exe | [Direct Download](https://github.com/easterCat/desktop-organizer/releases/download/v1.2.3/Setup.1.2.3.exe) |
+
+ [View all releases](https://github.com/easterCat/desktop-organizer/releases)
+
+ ---
+
+ ### 🎬 Demo
 
 <p align="center">
   <img src="screenshots/demo.gif" width="800" alt="Desktop Organizer Demo">
