@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/version-1.0.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1.0-orange" alt="Version">
 </p>
 
 ---
