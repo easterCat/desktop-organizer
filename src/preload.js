@@ -41,4 +41,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('activity-updated', handler);
     return () => ipcRenderer.removeListener('activity-updated', handler);
   },
+  // 隐藏/显示已收纳桌面图标
+  toggleHideIcons: (hide) => ipcRenderer.invoke('toggle-hide-icons', hide),
+  getHideStatus: () => ipcRenderer.invoke('get-hide-status'),
 });

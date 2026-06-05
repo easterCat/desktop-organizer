@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Desktop Organizer</title>
+  <title>桌面图标收纳盒</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
   <div class="titlebar">
     <div class="titlebar-drag">
       <span class="app-mark"></span>
-      <span class="app-title">Desktop Organizer</span>
+      <span class="app-title">桌面图标收纳盒</span>
     </div>
     <div class="titlebar-controls">
       <button type="button" class="win-btn" id="btn-minimize"></button>
@@ -30,6 +30,7 @@
       <svg class="search-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>
       <input type="text" id="search-input" placeholder="搜索... (Ctrl+F)" />
     </div>
+    <div class="toolbar-sep"></div>
     <div class="toolbar-right">
       <button type="button" class="btn-icon-only" id="btn-activity-log" title="活动日志">📋</button>
       <button type="button" class="btn-icon-only" id="btn-settings" title="设置">⚙️</button>
@@ -94,7 +95,7 @@
       </div>
       <div class="modal-foot">
         <button type="button" class="btn-ghost" id="modal-cancel">取消</button>
-        <button type="button" class="btn-solid" id="modal-confirm">创建</button>
+        <button type="button" class="btn-solid" id="modal-create-confirm">创建</button>
       </div>
     </div>
   </div>
@@ -145,12 +146,23 @@
           </div>
         </div>
         <div class="field">
+          <span class="field-label">桌面图标管理</span>
+          <div class="toggle-row">
+            <span class="toggle-label">隐藏已收纳的桌面图标</span>
+            <button type="button" class="toggle-switch" id="btn-hide-icons">
+              <span class="toggle-knob"></span>
+            </button>
+          </div>
+          <div class="toggle-hint">开启后，已收纳的图标将从桌面移入临时文件夹，关闭后恢复</div>
+        </div>
+        <div class="field">
           <span class="field-label">应用信息</span>
           <div class="settings-info">
             <div class="info-row"><span>版本</span><span id="info-version">1.0.0</span></div>
             <div class="info-row"><span>收纳盒数量</span><span id="info-box-count">0</span></div>
             <div class="info-row"><span>已分类图标</span><span id="info-classified-count">0</span></div>
             <div class="info-row"><span>未分类图标</span><span id="info-unassigned-count">0</span></div>
+            <div class="info-row"><span>已隐藏图标</span><span id="info-hidden-count">0</span></div>
           </div>
         </div>
       </div>
@@ -202,20 +214,15 @@
   <div class="status-bar" id="status-bar">
     <div class="status-left">
       <span class="status-item" id="status-box-count" title="收纳盒数量">📦 0</span>
+      <span class="status-sep"></span>
       <span class="status-item" id="status-total-count" title="总快捷方式">📄 0</span>
+      <span class="status-sep"></span>
       <span class="status-item" id="status-unassigned-count" title="未分类">❓ 0</span>
     </div>
-    <div class="status-center">
-      <div class="disk-usage-wrap" id="disk-usage-wrap" title="磁盘使用率">
-        <span class="disk-label">磁盘</span>
-        <div class="disk-bar">
-          <div class="disk-bar-fill" id="disk-bar-fill"></div>
-        </div>
-        <span class="disk-text" id="disk-text">--</span>
-      </div>
-    </div>
+    <div class="status-center"></div>
     <div class="status-right">
       <span class="status-item" id="status-mem" title="内存使用">💾 --</span>
+      <span class="status-sep"></span>
       <span class="status-item status-time" id="status-last-organize" title="上次整理时间">🕐 --</span>
     </div>
   </div>

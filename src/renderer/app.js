@@ -50,13 +50,17 @@ function syncUnassigned() {
   const shortcutMap = new Map(allShortcuts.map(s => [s.path, s]));
   const existingPaths = new Set(allShortcuts.map(s => s.path));
 
+  // 隐藏模式下，已隐藏的路径视为"有效"（不被过滤掉）
+  const hiddenPaths = new Set((config.hiddenItems || []).map(h => h.path));
+  const effectivePaths = new Set([...existingPaths, ...hiddenPaths]);
+
   // 记录变更前状态 (PERF-04)
   const beforeBoxes = JSON.stringify(config.boxes.map(b => b.items.map(i => i.path)));
   const beforeUnassigned = JSON.stringify(config.unassigned.map(i => i.path));
 
-  config.unassigned = config.unassigned.filter(item => existingPaths.has(item.path));
+  config.unassigned = config.unassigned.filter(item => effectivePaths.has(item.path));
   for (const box of config.boxes) {
-    box.items = box.items.filter(item => existingPaths.has(item.path));
+    box.items = box.items.filter(item => effectivePaths.has(item.path));
   }
 
   const enrichItem = (item) => {
@@ -66,8 +70,9 @@ function syncUnassigned() {
   config.unassigned.forEach(enrichItem);
   config.boxes.forEach(box => box.items.forEach(enrichItem));
 
+  // 隐藏模式下，不将已隐藏的快捷方式添加到未分类
   for (const sc of allShortcuts) {
-    if (!assignedPaths.has(sc.path) && !config.unassigned.find(u => u.path === sc.path)) {
+    if (!assignedPaths.has(sc.path) && !config.unassigned.find(u => u.path === sc.path) && !hiddenPaths.has(sc.path)) {
       config.unassigned.push(shortcutToItem(sc));
       changed = true;
     }
@@ -198,7 +203,10 @@ function renderBoxes(filter = '') {
         <div class="box-header" data-box-index="${idx}">
           <div class="box-color-bar" style="background:${box.color || '#6c5ce7'}"></div>
           <span class="box-icon">${box.icon || '📁'}</span>
-          <span class="box-title">${escapeHtml(box.name)}${desktopBadge}</span>
+          <div class="box-title-wrap">
+            <span class="box-title">${escapeHtml(box.name)}</span>
+            ${desktopBadge}
+          </div>
           <span class="box-count">${items.length}</span>
           <div class="box-actions">
             ${desktopToggleBtn}
@@ -254,6 +262,19 @@ function renderBoxes(filter = '') {
       else if (action === 'close-desktop') closeDesktopBox(idx);
     });
   });
+
+  // 未分类区域作为拖放目标
+  const unassignedSection = document.getElementById('unassigned-section');
+  if (unassignedSection && !unassignedSection._dropBound) {
+    unassignedSection._dropBound = true;
+    unassignedSection.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; unassignedSection.classList.add('drag-target'); });
+    unassignedSection.addEventListener('dragleave', (e) => { if (!unassignedSection.contains(e.relatedTarget)) unassignedSection.classList.remove('drag-target'); });
+    unassignedSection.addEventListener('drop', (e) => {
+      e.preventDefault();
+      unassignedSection.classList.remove('drag-target');
+      handleDropOnUnassigned(e);
+    });
+  }
 
   container.querySelectorAll('.shortcut-card').forEach(card => {
     bindDragEvents(card);
@@ -318,6 +339,25 @@ async function handleDropOnBox(e, boxIndex) {
     render(document.getElementById('search-input').value);
     showToast(`已将「${item.name}」移入「${config.boxes[boxIndex].name}」`);
     window.api.logActivity('move', `「${item.name}」移入「${config.boxes[boxIndex].name}」`);
+  }
+  dragData = null;
+}
+
+async function handleDropOnUnassigned(e) {
+  if (!dragData) return;
+  const { path, source } = dragData;
+  // 只处理从收纳盒拖出的情况，未分类之间拖拽无意义
+  if (!source.startsWith('box-')) { dragData = null; return; }
+  const srcBoxIdx = parseInt(source.replace('box-', ''));
+  const srcBox = config.boxes[srcBoxIdx];
+  const idx = srcBox.items.findIndex(i => i.path === path);
+  if (idx >= 0) {
+    const item = srcBox.items.splice(idx, 1)[0];
+    config.unassigned.push(item);
+    await saveConfig();
+    render(document.getElementById('search-input').value);
+    showToast(`已将「${item.name}」移回未分类`);
+    window.api.logActivity('move', `「${item.name}」移出「${srcBox.name}」，回到未分类`);
   }
   dragData = null;
 }
@@ -616,7 +656,7 @@ function bindModal() {
     selectedMode = option.dataset.mode;
   });
 
-  document.getElementById('modal-confirm').addEventListener('click', async () => {
+  document.getElementById('modal-create-confirm').addEventListener('click', async () => {
     const name = inputName.value.trim();
     if (!name) { inputName.style.borderColor = 'var(--danger)'; return; }
 
@@ -648,7 +688,7 @@ function bindModal() {
     }
   });
 
-  inputName.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('modal-confirm').click(); });
+  inputName.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('modal-create-confirm').click(); });
   inputName.addEventListener('input', () => { inputName.style.borderColor = ''; });
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
 }
@@ -692,22 +732,6 @@ async function updateStatusBar() {
   try {
     const sysInfo = await window.api.getSystemInfo();
 
-    // 磁盘使用率
-    if (sysInfo.diskTotal > 0) {
-      const usagePercent = Math.round((sysInfo.diskUsed / sysInfo.diskTotal) * 100);
-      const fillEl = document.getElementById('disk-bar-fill');
-      const textEl = document.getElementById('disk-text');
-      fillEl.style.width = usagePercent + '%';
-      textEl.textContent = usagePercent + '%';
-
-      // 颜色变化
-      fillEl.classList.remove('warning', 'danger');
-      if (usagePercent >= 90) fillEl.classList.add('danger');
-      else if (usagePercent >= 75) fillEl.classList.add('warning');
-
-      document.getElementById('disk-usage-wrap').title = `磁盘使用: ${formatBytes(sysInfo.diskUsed)} / ${formatBytes(sysInfo.diskTotal)}`;
-    }
-
     // 内存使用
     if (sysInfo.memTotal > 0) {
       const memPercent = Math.round((sysInfo.memUsed / sysInfo.memTotal) * 100);
@@ -725,18 +749,24 @@ function showConfirm(title, message) {
     document.getElementById('confirm-message').textContent = message;
     modal.style.display = 'flex';
 
+    let resolved = false;
     const cleanup = (result) => {
+      if (resolved) return;
+      resolved = true;
       modal.style.display = 'none';
       document.getElementById('confirm-ok').removeEventListener('click', onOk);
       document.getElementById('confirm-cancel').removeEventListener('click', onCancel);
       document.getElementById('confirm-close').removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onOverlayClick);
       resolve(result);
     };
     const onOk = () => cleanup(true);
     const onCancel = () => cleanup(false);
+    const onOverlayClick = (e) => { if (e.target === modal) onCancel(); };
     document.getElementById('confirm-ok').addEventListener('click', onOk);
     document.getElementById('confirm-cancel').addEventListener('click', onCancel);
     document.getElementById('confirm-close').addEventListener('click', onCancel);
+    modal.addEventListener('click', onOverlayClick);
   });
 }
 
@@ -787,7 +817,50 @@ function bindSettingsModal() {
     document.getElementById('info-classified-count').textContent = classifiedCount;
     document.getElementById('info-unassigned-count').textContent = config.unassigned.length;
 
+    // 填充隐藏开关状态
+    const hideToggle = document.getElementById('btn-hide-icons');
+    try {
+      const status = await window.api.getHideStatus();
+      hideToggle.classList.toggle('active', status.hideCollectedIcons);
+      document.getElementById('info-hidden-count').textContent = status.hiddenCount || 0;
+    } catch (e) {
+      hideToggle.classList.remove('active');
+      document.getElementById('info-hidden-count').textContent = 0;
+    }
+
     modal.style.display = 'flex';
+  });
+
+  // 隐藏/显示已收纳桌面图标 toggle
+  const hideToggle = document.getElementById('btn-hide-icons');
+  hideToggle.addEventListener('click', async () => {
+    const isActive = hideToggle.classList.contains('active');
+    const newHide = !isActive;
+
+    hideToggle.disabled = true;
+    hideToggle.style.opacity = '0.5';
+
+    try {
+      const result = await window.api.toggleHideIcons(newHide);
+      if (result.ok) {
+        hideToggle.classList.toggle('active', newHide);
+        // 只更新隐藏计数，面板和浮动窗口数据不变
+        const status = await window.api.getHideStatus();
+        document.getElementById('info-hidden-count').textContent = status.hiddenCount || 0;
+        if (newHide) {
+          showToast(`已隐藏 ${result.count} 个桌面图标`);
+        } else {
+          showToast(`已恢复 ${result.count} 个桌面图标`);
+        }
+      } else {
+        showToast('操作失败，请重试');
+      }
+    } catch (e) {
+      showToast('操作失败: ' + e.message);
+    } finally {
+      hideToggle.disabled = false;
+      hideToggle.style.opacity = '';
+    }
   });
 
   function closeModal() { modal.style.display = 'none'; }
@@ -917,9 +990,15 @@ function bindKeyboardShortcuts() {
         searchInput.blur();
         return;
       }
-      // 关闭所有模态框
+      // 如果确认对话框打开，点击取消
+      const confirmModal = document.getElementById('modal-confirm');
+      if (confirmModal.style.display === 'flex') {
+        document.getElementById('confirm-cancel').click();
+        return;
+      }
+      // 关闭其他模态框
       document.querySelectorAll('.modal-overlay').forEach(m => {
-        if (m.style.display === 'flex') m.style.display = 'none';
+        if (m !== confirmModal && m.style.display === 'flex') m.style.display = 'none';
       });
       hideContextMenu();
     }

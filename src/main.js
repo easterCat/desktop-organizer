@@ -5,7 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFileSync, execFile } = require('child_process');
 
-let DATA_DIR, CONFIG_FILE, LOG_FILE, APP_LOG_FILE;
+let DATA_DIR, CONFIG_FILE, LOG_FILE, APP_LOG_FILE, TEMP_DIR;
 let mainWindow;
 
 // 应用日志系统 (CODE-02)
@@ -178,7 +178,7 @@ function createWindow() {
 function loadConfig() {
   fs.ensureDirSync(DATA_DIR);
   if (!fs.existsSync(CONFIG_FILE)) {
-    const defaultConfig = { boxes: [], unassigned: [] };
+    const defaultConfig = { boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
     fs.writeJsonSync(CONFIG_FILE, defaultConfig, { spaces: 2 });
     return defaultConfig;
   }
@@ -195,13 +195,22 @@ function loadConfig() {
         dirty = true;
       }
     }
+    // 兼容旧数据：隐藏图标相关字段默认值
+    if (typeof config.hideCollectedIcons !== 'boolean') {
+      config.hideCollectedIcons = true;
+      dirty = true;
+    }
+    if (!Array.isArray(config.hiddenItems)) {
+      config.hiddenItems = [];
+      dirty = true;
+    }
     if (dirty) saveConfig(config);
     return config;
   } catch (e) {
     console.error('[Config] 配置文件读取失败，已备份并重置:', e.message);
     const backupPath = CONFIG_FILE + '.bak.' + Date.now();
     try { fs.copySync(CONFIG_FILE, backupPath); } catch (_) {}
-    const defaultConfig = { boxes: [], unassigned: [] };
+    const defaultConfig = { boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
     fs.writeJsonSync(CONFIG_FILE, defaultConfig, { spaces: 2 });
     return defaultConfig;
   }
@@ -526,6 +535,92 @@ function notifyAllDesktopBoxes() {
   }
 }
 
+// ============ 隐藏/显示已收纳桌面图标 ============
+
+function hideCollectedIconsFn() {
+  const config = loadConfig();
+  if (config.hideCollectedIcons) return { ok: true, count: 0 };
+
+  fs.ensureDirSync(TEMP_DIR);
+  let count = 0;
+  const hiddenItems = [];
+
+  // 只移动桌面文件到 temp，不清空 box.items（保留面板和浮动窗口中的图标）
+  for (const box of config.boxes) {
+    for (const item of box.items) {
+      const desktopPath = item.path;
+      if (!fs.existsSync(desktopPath)) continue;
+
+      const fileName = path.basename(desktopPath);
+      const tempPath = path.join(TEMP_DIR, fileName);
+
+      // 避免覆盖 temp 中已有的同名文件（加时间戳后缀）
+      let finalTempPath = tempPath;
+      if (fs.existsSync(tempPath)) {
+        const ext = path.extname(fileName);
+        const base = path.basename(fileName, ext);
+        finalTempPath = path.join(TEMP_DIR, `${base}_${Date.now()}${ext}`);
+      }
+
+      try {
+        fs.moveSync(desktopPath, finalTempPath);
+        hiddenItems.push({ path: desktopPath, tempPath: finalTempPath });
+        count++;
+      } catch (e) {
+        appLog('ERROR', '隐藏图标失败:', desktopPath, e.message);
+      }
+    }
+  }
+
+  config.hiddenItems = hiddenItems;
+  config.hideCollectedIcons = true;
+  saveConfig(config);
+
+  addActivity('system', `隐藏 ${count} 个已收纳的桌面图标`);
+  // 不通知 box-updated，因为面板和浮动窗口数据不变
+
+  return { ok: true, count };
+}
+
+function showCollectedIconsFn() {
+  const config = loadConfig();
+  if (!config.hideCollectedIcons) return { ok: true, count: 0 };
+
+  let count = 0;
+
+  for (const record of config.hiddenItems) {
+    const tempPath = record.tempPath;
+    const desktopPath = record.path;
+
+    if (!fs.existsSync(tempPath)) {
+      appLog('WARN', '临时文件不存在，无法恢复:', tempPath);
+      continue;
+    }
+
+    try {
+      // 如果桌面上已有同名文件，跳过
+      if (fs.existsSync(desktopPath)) {
+        appLog('WARN', '桌面已存在同名文件，跳过恢复:', desktopPath);
+        continue;
+      }
+
+      fs.moveSync(tempPath, desktopPath);
+      count++;
+    } catch (e) {
+      appLog('ERROR', '恢复图标失败:', tempPath, e.message);
+    }
+  }
+
+  config.hiddenItems = [];
+  config.hideCollectedIcons = false;
+  saveConfig(config);
+
+  addActivity('system', `恢复 ${count} 个桌面图标`);
+  // 不通知 box-updated，因为面板和浮动窗口数据不变
+
+  return { ok: true, count };
+}
+
 // ============ IPC Handlers ============
 
 // --- 主窗口 ---
@@ -637,6 +732,16 @@ ipcMain.handle('log-activity', async (_, type, message, detail) => {
 });
 ipcMain.handle('window-maximize', () => { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); });
 ipcMain.handle('window-close', () => mainWindow.close());
+
+// --- 隐藏/显示已收纳桌面图标 ---
+ipcMain.handle('toggle-hide-icons', async (_, hide) => {
+  if (hide) return hideCollectedIconsFn();
+  return showCollectedIconsFn();
+});
+ipcMain.handle('get-hide-status', async () => {
+  const config = loadConfig();
+  return { hideCollectedIcons: !!config.hideCollectedIcons, hiddenCount: (config.hiddenItems || []).length };
+});
 
 // 创建桌面浮动收纳盒
 ipcMain.handle('create-desktop-box', async (_, boxId) => {
@@ -873,7 +978,9 @@ app.whenReady().then(() => {
   LOG_FILE = path.join(DATA_DIR, 'activity-log.json');
   APP_LOG_FILE = path.join(app.getPath('userData'), 'app.log');
   ICON_CACHE_DIR = path.join(app.getPath('userData'), 'icons');
+  TEMP_DIR = path.join(app.getPath('userData'), 'temp');
   fs.ensureDirSync(ICON_CACHE_DIR);
+  fs.ensureDirSync(TEMP_DIR);
 
   appLog('INFO', '应用启动');
 
@@ -929,6 +1036,14 @@ app.whenReady().then(() => {
 
   // 恢复上次的桌面浮动窗口
   const config = loadConfig();
+
+  // 启动时自动隐藏已收纳的桌面图标（如果开关为开启）
+  // hideCollectedIconsFn 内部有防重复执行的守卫
+  if (config.hideCollectedIcons) {
+    appLog('INFO', '启动时检查已收纳桌面图标隐藏状态');
+    hideCollectedIconsFn();
+  }
+
   for (const box of config.boxes) {
     if (box.onDesktop) {
       createDesktopBox(box.id);
