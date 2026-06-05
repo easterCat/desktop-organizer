@@ -13,11 +13,52 @@
   <a href="README.md">🇺🇸 English Documentation</a>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
+  <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/version-1.0.0-orange" alt="Version">
+</p>
+
 ---
 
 一款基于 **Electron** 构建的 Windows 桌面应用，让你将桌面快捷方式（`.lnk` / `.url`）整理到自定义「收纳盒」中——支持桌面浮动窗口、快速整理、图标缓存、毛玻璃暗色主题 UI。
 
-## ✨ 功能特性
+## 界面截图
+
+### 主窗口
+
+核心管理界面——创建收纳盒、拖拽快捷方式、一键快速整理。
+
+<p align="center">
+  <img src="screenshots/main-window.png" width="800" alt="主窗口">
+</p>
+
+### 新建收纳盒
+
+为收纳盒命名，选择图标、色调和显示方式（面板内 / 桌面浮动）。
+
+<p align="center">
+  <img src="screenshots/after-click-create.png" width="800" alt="新建收纳盒">
+</p>
+
+### 桌面浮动窗口
+
+将任意收纳盒固定在桌面上，以透明、置顶的浮动小组件形式随时访问。
+
+<p align="center">
+  <img src="screenshots/after-eval.png" width="400" alt="桌面浮动窗口">
+</p>
+
+### 首次启动
+
+首次运行时，设置面板帮助你配置桌面路径和显示偏好。
+
+<p align="center">
+  <img src="screenshots/initial-launch.png" width="800" alt="首次启动">
+</p>
+
+## 功能特性
 
 | 功能 | 说明 |
 |------|------|
@@ -31,13 +72,13 @@
 | **状态栏** | 实时显示磁盘使用率、内存使用率、收纳盒/项目数量统计 |
 | **键盘快捷键** | `Ctrl+F` 搜索、`Ctrl+N` 新建收纳盒、`Ctrl+R` 刷新、`Ctrl+Shift+O` 快速整理 |
 
-## 📋 环境要求
+## 环境要求
 
 - **Node.js** >= 18.0.0
 - **pnpm** >= 8.0.0（推荐，项目使用 pnpm 作为包管理器）
 - **Windows** 10/11（依赖 PowerShell 和 Windows Shell COM 组件）
 
-## 🚀 快速开始
+## 快速开始
 
 ### 安装 pnpm
 
@@ -73,12 +114,12 @@ pnpm run pack
 
 输出位置：`dist/win-unpacked/`（免安装便携版）
 
-## 📁 项目结构
+## 项目结构
 
 ```
 desktop-organizer/
 ├── src/
-│   ├── main.js                  # Electron 主进程（约 945 行）
+│   ├── main.js                  # Electron 主进程（约 1059 行）
 │   │   ├── 配置管理              #   loadConfig / saveConfig → %APPDATA%
 │   │   ├── 快捷方式扫描          #   readDesktopShortcuts / parseLnkFile
 │   │   ├── 图标提取              #   extractIconBase64 / 并发提取（4 workers）
@@ -91,14 +132,14 @@ desktop-organizer/
 │   │
 │   ├── renderer/                # 主管理窗口
 │   │   ├── index.html           #   毛玻璃风格界面布局
-│   │   ├── app.js               #   窗口逻辑、拖拽、弹窗（约 930 行）
-│   │   └── styles.css           #   暗色主题 + backdrop-filter 模糊（约 837 行）
+│   │   ├── app.js               #   窗口逻辑、拖拽、弹窗（约 1008 行）
+│   │   └── styles.css           #   暗色主题 + backdrop-filter 模糊（约 913 行）
 │   │
 │   ├── desktop-box/             # 桌面浮动窗口
 │   │   ├── index.html           #   窗口布局
 │   │   ├── preload.js           #   窗口 IPC 桥接
-│   │   ├── app.js               #   窗口逻辑（约 232 行）
-│   │   └── style.css            #   窗口样式（约 230 行）
+│   │   ├── app.js               #   窗口逻辑（约 231 行）
+│   │   └── style.css            #   窗口样式（约 229 行）
 │   │
 │   └── ps/                      # PowerShell 脚本（仅 Windows）
 │       ├── parse-lnk.ps1        #   通过 WScript.Shell COM 解析 .lnk
@@ -108,11 +149,12 @@ desktop-organizer/
 │   └── start.js                 # 开发启动脚本（以子进程方式启动 Electron）
 ├── assets/
 │   └── icon.ico                 # 应用图标
+├── screenshots/                 # 应用截图
 ├── package.json
 └── pnpm-lock.yaml
 ```
 
-## 🏗️ 系统架构
+## 系统架构
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -135,7 +177,7 @@ desktop-organizer/
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## ⚙️ 配置说明
+## 配置说明
 
 应用数据存储在 `%APPDATA%/desktop-organizer/` 目录下：
 
@@ -174,7 +216,7 @@ desktop-organizer/
 }
 ```
 
-## 🔌 IPC 通道参考
+## IPC 通道参考
 
 | 通道名称 | 方向 | 说明 |
 |----------|------|------|
@@ -189,7 +231,7 @@ desktop-organizer/
 | `icon-updated` | 主进程 → 渲染 | 图标加载完成通知 |
 | `activity-updated` | 主进程 → 渲染 | 活动日志更新通知 |
 
-## 🔧 故障排查
+## 故障排查
 
 ### 应用无法启动
 
@@ -215,7 +257,7 @@ desktop-organizer/
 - 确保收纳盒名称包含有意义的关键词（如"开发"、"游戏"、"办公"）
 - 仅对「未分类」区域的快捷方式生效
 
-## 📦 技术栈
+## 技术栈
 
 | 组件 | 技术方案 |
 |------|---------|
@@ -226,6 +268,6 @@ desktop-organizer/
 | UI 实现 | 原生 HTML/CSS/JS，毛玻璃暗色主题 |
 | Windows 集成 | PowerShell、WScript.Shell COM、System.Drawing |
 
-## 📄 开源协议
+## 开源协议
 
 [MIT](LICENSE)

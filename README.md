@@ -13,11 +13,52 @@
   <a href="README_CN.md">🇨🇳 中文文档</a>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
+  <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/version-1.0.0-orange" alt="Version">
+</p>
+
 ---
 
-A Windows desktop application built with **Electron** that lets you organize desktop shortcuts (.lnk / .url) into customizable "boxes" — with floating desktop widgets, quick-organize, icon caching, and a glass-morphism dark UI.
+A Windows desktop application built with **Electron** that lets you organize desktop shortcuts (`.lnk` / `.url`) into customizable "boxes" — with floating desktop widgets, quick-organize, icon caching, and a glass-morphism dark UI.
 
-## ✨ Features
+## Screenshots
+
+### Main Window
+
+The primary management interface — create boxes, drag shortcuts between them, and quick-organize with one click.
+
+<p align="center">
+  <img src="screenshots/main-window.png" width="800" alt="Main Window">
+</p>
+
+### Create Box Dialog
+
+Choose a name, icon, color, and display mode (panel or floating widget) for each box.
+
+<p align="center">
+  <img src="screenshots/after-click-create.png" width="800" alt="Create Box Dialog">
+</p>
+
+### Floating Desktop Widget
+
+Pin any box to your desktop as a transparent, always-on-top widget for instant access.
+
+<p align="center">
+  <img src="screenshots/after-eval.png" width="400" alt="Floating Desktop Widget">
+</p>
+
+### Initial Launch
+
+On first run, the settings panel helps you configure the desktop path and display preferences.
+
+<p align="center">
+  <img src="screenshots/initial-launch.png" width="800" alt="Initial Launch">
+</p>
+
+## Features
 
 | Feature | Description |
 |---------|-------------|
@@ -31,13 +72,13 @@ A Windows desktop application built with **Electron** that lets you organize des
 | **Status Bar** | Real-time disk usage, memory usage, box/item counts |
 | **Keyboard Shortcuts** | `Ctrl+F` search, `Ctrl+N` new box, `Ctrl+R` refresh, `Ctrl+Shift+O` quick organize |
 
-## 📋 Prerequisites
+## Prerequisites
 
 - **Node.js** >= 18.0.0
 - **pnpm** >= 8.0.0 (recommended; project uses pnpm as package manager)
 - **Windows** 10/11 (depends on PowerShell and Windows Shell COM)
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Install pnpm
 
@@ -73,12 +114,12 @@ pnpm run pack
 
 Output: `dist/win-unpacked/` (portable, no installer)
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 desktop-organizer/
 ├── src/
-│   ├── main.js                  # Electron main process (~945 lines)
+│   ├── main.js                  # Electron main process (~1059 lines)
 │   │   ├── Config management    #   loadConfig / saveConfig → %APPDATA%
 │   │   ├── Shortcut scanning    #   readDesktopShortcuts / parseLnkFile
 │   │   ├── Icon extraction      #   extractIconBase64 / concurrent workers
@@ -91,14 +132,14 @@ desktop-organizer/
 │   │
 │   ├── renderer/                # Main management window
 │   │   ├── index.html           #   Layout with glass-morphism UI
-│   │   ├── app.js               #   Window logic, drag-drop, modals (~930 lines)
-│   │   └── styles.css           #   Dark theme with backdrop-filter blur (~837 lines)
+│   │   ├── app.js               #   Window logic, drag-drop, modals (~1008 lines)
+│   │   └── styles.css           #   Dark theme with backdrop-filter blur (~913 lines)
 │   │
 │   ├── desktop-box/             # Floating desktop widget
 │   │   ├── index.html           #   Widget layout
 │   │   ├── preload.js           #   Widget IPC bridge
-│   │   ├── app.js               #   Widget logic (~232 lines)
-│   │   └── style.css            #   Widget styling (~230 lines)
+│   │   ├── app.js               #   Widget logic (~231 lines)
+│   │   └── style.css            #   Widget styling (~229 lines)
 │   │
 │   └── ps/                      # PowerShell scripts (Windows-only)
 │       ├── parse-lnk.ps1        #   Parse .lnk via WScript.Shell COM
@@ -108,11 +149,12 @@ desktop-organizer/
 │   └── start.js                 # Dev startup (spawns Electron detached)
 ├── assets/
 │   └── icon.ico                 # Application icon
+├── screenshots/                 # App screenshots
 ├── package.json
 └── pnpm-lock.yaml
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -135,7 +177,7 @@ desktop-organizer/
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 Application data is stored in `%APPDATA%/desktop-organizer/`:
 
@@ -174,7 +216,7 @@ Application data is stored in `%APPDATA%/desktop-organizer/`:
 }
 ```
 
-## 🔌 IPC Channels
+## IPC Channels
 
 | Channel | Direction | Description |
 |---------|-----------|-------------|
@@ -189,7 +231,7 @@ Application data is stored in `%APPDATA%/desktop-organizer/`:
 | `icon-updated` | Main → Renderer | Icon loaded notification |
 | `activity-updated` | Main → Renderer | Activity log update notification |
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### App Won't Start
 
@@ -215,7 +257,7 @@ Application data is stored in `%APPDATA%/desktop-organizer/`:
 - Ensure box names contain meaningful keywords (e.g. "Dev", "Games", "Office")
 - Only affects shortcuts in the "Unassigned" area
 
-## 📦 Tech Stack
+## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
@@ -226,6 +268,6 @@ Application data is stored in `%APPDATA%/desktop-organizer/`:
 | UI | Vanilla HTML/CSS/JS, glass-morphism dark theme |
 | Windows Integration | PowerShell, WScript.Shell COM, System.Drawing |
 
-## 📄 License
+## License
 
 [MIT](LICENSE)
