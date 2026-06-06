@@ -117,13 +117,20 @@ function bindIconUpdateListener() {
   iconUpdateCleanup = window.api.onIconUpdated(({ path: iconPath, iconData }) => {
     if (iconData) {
       iconCache[iconPath] = `data:image/png;base64,${iconData}`;
-      // 增量更新 DOM 中对应的图标元素
-      const cards = document.querySelectorAll(`[data-path="${CSS.escape(iconPath)}"] .shortcut-icon`);
-      cards.forEach(el => {
-        el.classList.remove('loading');
-        el.innerHTML = `<img src="${iconCache[iconPath]}" alt="" />`;
-      });
     }
+    // 增量更新 DOM 中对应的图标元素（包括失败的情况，移除 loading 状态）
+    const cards = document.querySelectorAll(`[data-path="${CSS.escape(iconPath)}"] .shortcut-icon`);
+    cards.forEach(el => {
+      el.classList.remove('loading');
+      if (iconData) {
+        el.innerHTML = `<img src="${iconCache[iconPath]}" alt="" />`;
+      } else {
+        // 提取失败，显示 fallback emoji
+        const card = el.closest('.shortcut-card');
+        const isUrl = card && card.dataset.url;
+        el.textContent = isUrl ? '🌐' : '📄';
+      }
+    });
   });
 }
 
@@ -828,6 +835,15 @@ function bindSettingsModal() {
       document.getElementById('info-hidden-count').textContent = 0;
     }
 
+    // 填充存储路径信息
+    try {
+      const paths = await window.api.getStoragePaths();
+      document.getElementById('info-data-dir').textContent = paths.dataDir || '--';
+      document.getElementById('info-data-dir').title = paths.dataDir || '';
+      document.getElementById('info-icon-cache-dir').textContent = paths.iconCacheDir || '--';
+      document.getElementById('info-icon-cache-dir').title = paths.iconCacheDir || '';
+    } catch (e) {}
+
     modal.style.display = 'flex';
   });
 
@@ -873,6 +889,43 @@ function bindSettingsModal() {
     closeModal();
     showToast('设置已保存');
   });
+
+  // 打开文件夹按钮
+  document.querySelectorAll('.btn-open-folder').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const folderType = btn.dataset.folder;
+      try {
+        const paths = await window.api.getStoragePaths();
+        const folderPath = folderType === 'data' ? paths.dataDir : paths.iconCacheDir;
+        if (folderPath) {
+          const res = await window.api.openFolder(folderPath);
+          if (res && !res.ok) showToast('打开失败: ' + res.error);
+        }
+      } catch (e) {
+        showToast('打开失败: ' + e.message);
+      }
+    });
+  });
+
+  // 重置图标缓存（暂时隐藏，元素不存在时跳过）
+  const resetCachesBtn = document.getElementById('btn-reset-caches');
+  if (resetCachesBtn) {
+    resetCachesBtn.addEventListener('click', async () => {
+      const confirmed = await showConfirm('重置缓存', '确定要清除所有图标缓存吗？\n首次加载会稍慢，图标将重新提取。');
+      if (!confirmed) return;
+      try {
+        const res = await window.api.resetCaches();
+        if (res && res.ok) {
+          iconCache = {};
+          await refreshShortcuts();
+          render(document.getElementById('search-input').value);
+          showToast('缓存已重置，图标重新提取中...');
+        }
+      } catch (e) {
+        showToast('重置失败: ' + e.message);
+      }
+    });
+  }
 
   browseBtn.addEventListener('click', async () => {
     const folder = await window.api.pickFolder();

@@ -13,7 +13,7 @@ function escapeAttr(str) {
 function getIconHtmlFromUtils(item, iconCache) {
   if (iconCache[item.path]) return `<img src="${iconCache[item.path]}" alt="${item.name}" />`;
   if (item.iconData) return `<img src="data:image/png;base64,${item.iconData}" alt="${item.name}" />`;
-  if (item.iconPath) return '';
+  // iconPath 存在但图标尚未加载时，显示 fallback emoji 而非空字符串（避免永久转圈）
   if (item.type === 'url') return '🌐';
   return '📄';
 }

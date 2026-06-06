@@ -156,6 +156,29 @@
           <div class="toggle-hint">开启后，已收纳的图标将从桌面移入临时文件夹，关闭后恢复</div>
         </div>
         <div class="field">
+          <span class="field-label">存储位置</span>
+          <div class="settings-info">
+            <div class="info-row">
+              <span>数据目录</span>
+              <span class="path-value" id="info-data-dir" title="点击打开">--</span>
+              <button type="button" class="btn-icon-only btn-open-folder" data-folder="data" title="打开文件夹">📂</button>
+            </div>
+            <div class="info-row">
+              <span>图标缓存</span>
+              <span class="path-value" id="info-icon-cache-dir" title="点击打开">--</span>
+              <button type="button" class="btn-icon-only btn-open-folder" data-folder="iconCache" title="打开文件夹">📂</button>
+            </div>
+          </div>
+        </div>
+        <!-- 缓存管理（暂时隐藏） -->
+        <!--
+        <div class="field">
+          <span class="field-label">缓存管理</span>
+          <button type="button" class="btn-ghost" id="btn-reset-caches" style="width:100%;text-align:center;">重置图标缓存</button>
+          <div class="toggle-hint">清除所有图标缓存并重新提取，首次加载会稍慢</div>
+        </div>
+        -->
+        <div class="field">
           <span class="field-label">应用信息</span>
           <div class="settings-info">
             <div class="info-row"><span>版本</span><span id="info-version">1.0.0</span></div>

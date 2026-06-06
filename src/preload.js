@@ -44,4 +44,9 @@ contextBridge.exposeInMainWorld('api', {
   // 隐藏/显示已收纳桌面图标
   toggleHideIcons: (hide) => ipcRenderer.invoke('toggle-hide-icons', hide),
   getHideStatus: () => ipcRenderer.invoke('get-hide-status'),
+  // 缓存路径信息
+  getStoragePaths: () => ipcRenderer.invoke('get-storage-paths'),
+  openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
+  // 重置缓存
+  resetCaches: () => ipcRenderer.invoke('reset-caches'),
 });

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-06
+
+### Changed
+
+- **Icon Cache Overhaul** — Cache now stores PNG binary files instead of JSON, enabling direct backup and browsing; mtime-based validation replaced old hash-based approach
+- **Icon Extraction Fallback** — PowerShell script now uses `SHGetFileInfo` Shell API for `.lnk`/`.cmd`/`.bat` files when `ExtractAssociatedIcon` fails
+- **Graceful Icon Failure** — Renderer shows fallback emoji (🌐/📄) instead of permanent loading spinner when icon extraction fails
+- **Icon Retry** — Memory cache allows retry for previously failed icon extractions
+
+### Added
+
+- **Storage Path Display** — Settings panel shows data directory and icon cache directory paths
+- **Open Folder Buttons** — Quick access to open storage folders from settings
+- **Window Control Hotarea** — Expanded click hotarea for minimize/maximize/close buttons
+
 ## [1.2.6] - 2026-06-06
 
 ### Changed

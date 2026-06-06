@@ -5,7 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFileSync, execFile } = require('child_process');
 
-let DATA_DIR, CONFIG_FILE, LOG_FILE, APP_LOG_FILE, TEMP_DIR;
+let DATA_DIR, CONFIG_FILE, LOG_FILE, APP_LOG_FILE, BACKUP_DIR;
 let mainWindow;
 
 // 应用日志系统 (CODE-02)
@@ -225,7 +225,7 @@ function saveConfig(config) {
 
 // --- 图标磁盘缓存 (PERF-02) ---
 function getIconCacheKey(iconPath) {
-  return crypto.createHash('md5').update(iconPath).digest('hex') + '.json';
+  return crypto.createHash('md5').update(iconPath).digest('hex') + '.png';
 }
 
 function getCachedIcon(iconPath) {
@@ -233,9 +233,12 @@ function getCachedIcon(iconPath) {
   const cacheFile = path.join(ICON_CACHE_DIR, getIconCacheKey(iconPath));
   if (!fs.existsSync(cacheFile)) return null;
   try {
-    const cache = fs.readJsonSync(cacheFile);
-    const stat = fs.statSync(iconPath);
-    if (cache.mtime === stat.mtimeMs) return cache.base64;
+    if (!fs.existsSync(iconPath)) return null; // 源文件不存在，缓存无效
+    const srcStat = fs.statSync(iconPath);
+    const cacheStat = fs.statSync(cacheFile);
+    // 以缓存文件的修改时间作为基准，若源文件较新则缓存失效
+    if (srcStat.mtimeMs > cacheStat.mtimeMs) return null;
+    return fs.readFileSync(cacheFile).toString('base64');
   } catch (e) {
     appLog('WARN', '读取图标缓存失败:', iconPath, e.message);
   }
@@ -246,8 +249,9 @@ function setCachedIcon(iconPath, base64) {
   if (!ICON_CACHE_DIR) return;
   const cacheFile = path.join(ICON_CACHE_DIR, getIconCacheKey(iconPath));
   try {
-    const stat = fs.statSync(iconPath);
-    fs.writeJsonSync(cacheFile, { mtime: stat.mtimeMs, base64 });
+    // 将 base64 解码后以 PNG 二进制文件写入磁盘，便于备份和浏览
+    const buf = Buffer.from(base64, 'base64');
+    fs.writeFileSync(cacheFile, buf);
   } catch (e) {
     appLog('WARN', '写入图标缓存失败:', iconPath, e.message);
   }
@@ -278,7 +282,12 @@ function runPSScriptAsync(scriptName, args = []) {
 // --- 图标提取 ---
 function extractIconBase64(iconPath) {
   if (!iconPath) return null;
-  if (iconCache.has(iconPath)) return iconCache.get(iconPath);
+  // 内存缓存：跳过之前提取失败（null）的条目，允许重试
+  if (iconCache.has(iconPath)) {
+    const cached = iconCache.get(iconPath);
+    if (cached) return cached;
+    // null 缓存条目不返回，允许重试提取
+  }
   // 磁盘缓存 (PERF-02)
   const diskCached = getCachedIcon(iconPath);
   if (diskCached) { iconCache.set(iconPath, diskCached); return diskCached; }
@@ -317,8 +326,8 @@ async function extractIconsConcurrently(shortcuts, concurrency = 4) {
             if (sc.iconData) setCachedIcon(sc.iconPath, sc.iconData);
           }
         }
-        // 推送增量更新到渲染进程
-        if (mainWindow && !mainWindow.isDestroyed() && sc.iconData) {
+        // 推送增量更新到渲染进程（包括失败的情况，让渲染器移除 loading 状态）
+        if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('icon-updated', { path: sc.path, iconData: sc.iconData });
         }
       }
@@ -364,9 +373,13 @@ function readDesktopShortcuts() {
           const iconPath = resolveIconPath(parsed.iconLocation, parsed.targetPath);
           if (iconPath) {
             shortcut.iconPath = iconPath;
-            // 仅从缓存读取图标，不阻塞主进程 (PERF-01)
-            const cached = iconCache.get(iconPath) || getCachedIcon(iconPath);
-            if (cached) shortcut.iconData = cached;
+            // 同步提取图标（与浮动窗口行为一致，确保图标在首次渲染时就可用）
+            shortcut.iconData = extractIconBase64(iconPath);
+            // 如果 iconPath 提取失败且 targetPath 不同，尝试从 targetPath 提取
+            if (!shortcut.iconData && parsed.targetPath && parsed.targetPath !== iconPath) {
+              shortcut.iconData = extractIconBase64(parsed.targetPath);
+              if (shortcut.iconData) shortcut.iconPath = parsed.targetPath;
+            }
           }
         }
       } else {
@@ -379,8 +392,7 @@ function readDesktopShortcuts() {
             const iconPath = iconMatch[1].trim();
             if (iconPath) {
               shortcut.iconPath = iconPath;
-              const cached = iconCache.get(iconPath) || getCachedIcon(iconPath);
-              if (cached) shortcut.iconData = cached;
+              shortcut.iconData = extractIconBase64(iconPath);
             }
           }
         } catch (e) {
@@ -539,36 +551,43 @@ function notifyAllDesktopBoxes() {
 
 function hideCollectedIconsFn() {
   const config = loadConfig();
-  if (config.hideCollectedIcons) return { ok: true, count: 0 };
 
-  fs.ensureDirSync(TEMP_DIR);
+  fs.ensureDirSync(BACKUP_DIR);
   let count = 0;
-  const hiddenItems = [];
+  // 保留已有 hiddenItems，追加新隐藏的项
+  const hiddenItems = Array.isArray(config.hiddenItems) ? [...config.hiddenItems] : [];
+  const alreadyHidden = new Set(hiddenItems.map(h => h.path));
 
-  // 只移动桌面文件到 temp，不清空 box.items（保留面板和浮动窗口中的图标）
+  // 只移动桌面文件到 backup，不清空 box.items / unassigned（保留面板和浮动窗口中的图标）
+  const itemsToHide = [];
   for (const box of config.boxes) {
-    for (const item of box.items) {
-      const desktopPath = item.path;
-      if (!fs.existsSync(desktopPath)) continue;
+    for (const item of box.items) itemsToHide.push(item);
+  }
+  // 未分类面板中的图标也视为已整理，一并隐藏
+  for (const item of config.unassigned) itemsToHide.push(item);
 
-      const fileName = path.basename(desktopPath);
-      const tempPath = path.join(TEMP_DIR, fileName);
+  for (const item of itemsToHide) {
+    const desktopPath = item.path;
+    if (alreadyHidden.has(desktopPath)) continue; // 已在 backup 中，跳过
+    if (!fs.existsSync(desktopPath)) continue;
 
-      // 避免覆盖 temp 中已有的同名文件（加时间戳后缀）
-      let finalTempPath = tempPath;
-      if (fs.existsSync(tempPath)) {
-        const ext = path.extname(fileName);
-        const base = path.basename(fileName, ext);
-        finalTempPath = path.join(TEMP_DIR, `${base}_${Date.now()}${ext}`);
-      }
+    const fileName = path.basename(desktopPath);
+    const backupPath = path.join(BACKUP_DIR, fileName);
 
-      try {
-        fs.moveSync(desktopPath, finalTempPath);
-        hiddenItems.push({ path: desktopPath, tempPath: finalTempPath });
-        count++;
-      } catch (e) {
-        appLog('ERROR', '隐藏图标失败:', desktopPath, e.message);
-      }
+    // 避免覆盖 backup 中已有的同名文件（加时间戳后缀）
+    let finalBackupPath = backupPath;
+    if (fs.existsSync(backupPath)) {
+      const ext = path.extname(fileName);
+      const base = path.basename(fileName, ext);
+      finalBackupPath = path.join(BACKUP_DIR, `${base}_${Date.now()}${ext}`);
+    }
+
+    try {
+      fs.moveSync(desktopPath, finalBackupPath);
+      hiddenItems.push({ path: desktopPath, tempPath: finalBackupPath });
+      count++;
+    } catch (e) {
+      appLog('ERROR', '隐藏图标失败:', desktopPath, e.message);
     }
   }
 
@@ -576,7 +595,7 @@ function hideCollectedIconsFn() {
   config.hideCollectedIcons = true;
   saveConfig(config);
 
-  addActivity('system', `隐藏 ${count} 个已收纳的桌面图标`);
+  addActivity('system', `隐藏 ${count} 个已整理的桌面图标`);
   // 不通知 box-updated，因为面板和浮动窗口数据不变
 
   return { ok: true, count };
@@ -584,16 +603,17 @@ function hideCollectedIconsFn() {
 
 function showCollectedIconsFn() {
   const config = loadConfig();
-  if (!config.hideCollectedIcons) return { ok: true, count: 0 };
+  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
+  if (hiddenItems.length === 0 && !config.hideCollectedIcons) return { ok: true, count: 0 };
 
   let count = 0;
 
-  for (const record of config.hiddenItems) {
+  for (const record of hiddenItems) {
     const tempPath = record.tempPath;
     const desktopPath = record.path;
 
     if (!fs.existsSync(tempPath)) {
-      appLog('WARN', '临时文件不存在，无法恢复:', tempPath);
+      appLog('WARN', '备份文件不存在，无法恢复:', tempPath);
       continue;
     }
 
@@ -626,8 +646,7 @@ function showCollectedIconsFn() {
 // --- 主窗口 ---
 ipcMain.handle('get-shortcuts', async () => {
   const shortcuts = readDesktopShortcuts();
-  // 异步提取未缓存的图标，不阻塞返回 (PERF-01)
-  extractIconsConcurrently(shortcuts);
+  // 图标已在 readDesktopShortcuts 中同步提取，无需异步提取
   return shortcuts;
 });
 ipcMain.handle('load-config', async () => loadConfig());
@@ -640,13 +659,22 @@ ipcMain.handle('save-config', async (_, config) => {
 });
 ipcMain.handle('open-shortcut', async (_, shortcutPath, targetPath, url) => {
   try {
+    // 如果快捷方式文件不存在，检查是否在 hiddenItems 中（被隐藏的图标）
+    let effectivePath = shortcutPath;
+    if (shortcutPath && !fs.existsSync(shortcutPath)) {
+      const config = loadConfig();
+      const hidden = (config.hiddenItems || []).find(h => h.path === shortcutPath);
+      if (hidden && hidden.tempPath && fs.existsSync(hidden.tempPath)) {
+        effectivePath = hidden.tempPath;
+      }
+    }
     // 1. 尝试打开快捷方式文件本身
-    if (shortcutPath && fs.existsSync(shortcutPath)) {
+    if (effectivePath && fs.existsSync(effectivePath)) {
       const ext = path.extname(shortcutPath).toLowerCase();
       if (ext === '.lnk') {
-        execFileSync('cmd', ['/c', 'start', '""', shortcutPath], { timeout: 5000 });
+        execFileSync('cmd', ['/c', 'start', '""', effectivePath], { timeout: 5000 });
       } else {
-        const errMsg = await shell.openPath(shortcutPath);
+        const errMsg = await shell.openPath(effectivePath);
         if (errMsg) return { ok: false, error: errMsg };
       }
       return { ok: true };
@@ -671,9 +699,18 @@ ipcMain.handle('open-shortcut', async (_, shortcutPath, targetPath, url) => {
 });
 ipcMain.handle('open-in-explorer', async (_, shortcutPath, targetPath) => {
   try {
+    // 如果快捷方式文件不存在，检查是否在 hiddenItems 中（被隐藏的图标）
+    let effectivePath = shortcutPath;
+    if (shortcutPath && !fs.existsSync(shortcutPath)) {
+      const config = loadConfig();
+      const hidden = (config.hiddenItems || []).find(h => h.path === shortcutPath);
+      if (hidden && hidden.tempPath && fs.existsSync(hidden.tempPath)) {
+        effectivePath = hidden.tempPath;
+      }
+    }
     // 1. 尝试定位快捷方式文件
-    if (shortcutPath && fs.existsSync(shortcutPath)) {
-      shell.showItemInFolder(shortcutPath);
+    if (effectivePath && fs.existsSync(effectivePath)) {
+      shell.showItemInFolder(effectivePath);
       return { ok: true };
     }
     // 2. 快捷方式文件不存在，尝试定位目标文件
@@ -682,8 +719,8 @@ ipcMain.handle('open-in-explorer', async (_, shortcutPath, targetPath) => {
       return { ok: true };
     }
     // 3. 尝试打开快捷方式所在目录
-    if (shortcutPath) {
-      const dir = path.dirname(shortcutPath);
+    if (effectivePath) {
+      const dir = path.dirname(effectivePath);
       if (fs.existsSync(dir)) {
         shell.showItemInFolder(dir);
         return { ok: true };
@@ -732,6 +769,47 @@ ipcMain.handle('log-activity', async (_, type, message, detail) => {
 });
 ipcMain.handle('window-maximize', () => { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); });
 ipcMain.handle('window-close', () => mainWindow.close());
+
+// --- 重置缓存 ---
+ipcMain.handle('reset-caches', async () => {
+  // 1. 清空内存缓存
+  iconCache.clear();
+  // 2. 删除磁盘图标缓存目录并重建
+  try {
+    fs.removeSync(ICON_CACHE_DIR);
+    fs.ensureDirSync(ICON_CACHE_DIR);
+  } catch (e) {}
+  // 3. 清除 config 中所有 item 的 iconData
+  const config = loadConfig();
+  for (const box of config.boxes) {
+    for (const item of box.items) item.iconData = null;
+  }
+  for (const item of config.unassigned) item.iconData = null;
+  saveConfig(config);
+  addActivity('system', '已重置所有图标缓存');
+  return { ok: true };
+});
+
+// --- 缓存路径信息 ---
+ipcMain.handle('get-storage-paths', async () => {
+  return {
+    dataDir: DATA_DIR,
+    iconCacheDir: ICON_CACHE_DIR,
+    backupDir: BACKUP_DIR,
+    appLog: APP_LOG_FILE
+  };
+});
+ipcMain.handle('open-folder', async (_, folderPath) => {
+  try {
+    if (fs.existsSync(folderPath)) {
+      await shell.openPath(folderPath);
+      return { ok: true };
+    }
+    return { ok: false, error: '文件夹不存在' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // --- 隐藏/显示已收纳桌面图标 ---
 ipcMain.handle('toggle-hide-icons', async (_, hide) => {
@@ -953,7 +1031,26 @@ function findBoxIdByWebContents(webContents) {
   return null;
 }
 
-// ============ 启动 ============
+// ============ 单实例限制 ============
+
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 当尝试启动第二个实例时，聚焦现有窗口
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  startApp();
+}
+
+function startApp() {
 
 // 格式化相对时间
 function formatRelativeTime(timestamp) {
@@ -973,14 +1070,29 @@ function formatRelativeTime(timestamp) {
 }
 
 app.whenReady().then(() => {
-  DATA_DIR = path.join(app.getPath('userData'), 'data');
+  // 优先使用安装目录（.exe 所在目录）下的 datas 和 icons 文件夹
+  let INSTALL_DIR = path.dirname(app.getPath('exe'));
+  try {
+    fs.ensureDirSync(path.join(INSTALL_DIR, 'datas'));
+    fs.ensureDirSync(path.join(INSTALL_DIR, 'icons'));
+    // 测试安装目录是否可写
+    const testFile = path.join(INSTALL_DIR, 'datas', '.write-test');
+    fs.writeFileSync(testFile, '');
+    fs.removeSync(testFile);
+  } catch (e) {
+    // 安装目录不可写（如 Program Files），回退到 userData
+    appLog('WARN', '安装目录不可写，回退到 userData:', e.message);
+    INSTALL_DIR = app.getPath('userData');
+  }
+
+  DATA_DIR = path.join(INSTALL_DIR, 'datas');
   CONFIG_FILE = path.join(DATA_DIR, 'config.json');
   LOG_FILE = path.join(DATA_DIR, 'activity-log.json');
   APP_LOG_FILE = path.join(app.getPath('userData'), 'app.log');
-  ICON_CACHE_DIR = path.join(app.getPath('userData'), 'icons');
-  TEMP_DIR = path.join(app.getPath('userData'), 'temp');
+  ICON_CACHE_DIR = path.join(INSTALL_DIR, 'icons');
+  BACKUP_DIR = path.join(ICON_CACHE_DIR, 'shortcuts');
   fs.ensureDirSync(ICON_CACHE_DIR);
-  fs.ensureDirSync(TEMP_DIR);
+  fs.ensureDirSync(BACKUP_DIR);
 
   appLog('INFO', '应用启动');
 
@@ -1011,7 +1123,15 @@ app.whenReady().then(() => {
       }},
       { label: `上次整理: ${lastTimeStr}`, enabled: false },
       { type: 'separator' },
-      { label: '退出', click: () => { app.isQuitting = true; app.quit(); } }
+      { label: '退出', click: () => {
+        app.isQuitting = true;
+        // 清理资源
+        clearInterval(trayRefreshTimer);
+        for (const timer of saveTimers.values()) clearTimeout(timer);
+        saveTimers.clear();
+        if (tray && !tray.isDestroyed()) tray.destroy();
+        app.quit();
+      } }
     ]);
   }
 
@@ -1019,8 +1139,8 @@ app.whenReady().then(() => {
   tray.setContextMenu(buildTrayMenu());
   tray.on('double-click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
 
-  // 定期刷新托盘菜单（每30秒）
-  setInterval(() => {
+  // 定期刷新托盘菜单（每30秒），保存 timer ID 以便退出时清除
+  const trayRefreshTimer = setInterval(() => {
     if (tray && !tray.isDestroyed()) {
       tray.setContextMenu(buildTrayMenu());
     }
@@ -1038,7 +1158,7 @@ app.whenReady().then(() => {
   const config = loadConfig();
 
   // 启动时自动隐藏已收纳的桌面图标（如果开关为开启）
-  // hideCollectedIconsFn 内部有防重复执行的守卫
+  // hideCollectedIconsFn 内部通过 alreadyHidden 集合避免重复移动
   if (config.hideCollectedIcons) {
     appLog('INFO', '启动时检查已收纳桌面图标隐藏状态');
     hideCollectedIconsFn();
@@ -1053,6 +1173,8 @@ app.whenReady().then(() => {
 
 // 保持托盘运行，不因窗口关闭而退出 (UX-01)
 app.on('window-all-closed', () => {});
+
+} // end startApp
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();

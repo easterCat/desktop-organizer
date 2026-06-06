@@ -86,6 +86,13 @@ body {
 }
 .win-btn:hover { background: rgba(255,255,255,0.08); }
 
+/* 扩大窗口控制按钮的点击热区，视觉尺寸不变 */
+.win-btn::before {
+  content: '';
+  position: absolute;
+  top: -8px; left: -8px; right: -8px; bottom: -8px;
+}
+
 .win-btn::after {
   content: '';
   position: absolute;
@@ -786,6 +793,33 @@ body {
   color: var(--text2);
   font-variant-numeric: tabular-nums;
 }
+
+.info-row .path-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text2);
+  font-size: 10.5px;
+  font-family: monospace;
+  direction: rtl;
+  text-align: right;
+  padding: 0 6px;
+}
+
+.btn-open-folder {
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.btn-open-folder:hover { opacity: 1; }
 
 /* --- P2: 活动日志面板 (D04) --- */
 .log-list {
