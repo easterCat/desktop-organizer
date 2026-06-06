@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Storage Path Display** — Settings panel shows data directory and icon cache directory paths
 - **Open Folder Buttons** — Quick access to open storage folders from settings
 - **Window Control Hotarea** — Expanded click hotarea for minimize/maximize/close buttons
+- **Portable Data Directory** — Electron internal cache paths redirected to app installation directory for cleaner uninstalls
+- **Uninstall Cleanup** — NSIS uninstaller now removes all runtime data (cache, session-data, crash-dumps, logs, temp, datas, icons)
+- **Dev Script** — Added `pnpm run dev` for development with auto-reload
+- **App Manager** — Added `pnpm run app` script for application management
 
 ## [1.2.6] - 2026-06-06
 

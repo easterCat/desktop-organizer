@@ -1047,6 +1047,29 @@ if (!gotTheLock) {
     }
   });
 
+  // --- 将 Electron 内部缓存路径重定向到应用安装目录 ---
+  // 避免在 C:\Users\<user>\AppData\Roaming 中产生缓存文件，
+  // 使卸载应用时能一并清除所有数据。
+  const appInstallDir = path.dirname(app.getPath('exe'));
+  try {
+    const portableDataDir = path.join(appInstallDir, 'datas');
+    fs.ensureDirSync(portableDataDir);
+    const testFile = path.join(portableDataDir, '.write-test');
+    fs.writeFileSync(testFile, '');
+    fs.removeSync(testFile);
+
+    // 安装目录可写，将 Electron 所有内部路径重定向到此
+    app.setPath('userData', appInstallDir);
+    app.setPath('cache', path.join(appInstallDir, 'cache'));
+    app.setPath('sessionData', path.join(appInstallDir, 'session-data'));
+    app.setPath('crashDumps', path.join(appInstallDir, 'crash-dumps'));
+    app.setPath('logs', path.join(appInstallDir, 'logs'));
+    app.setPath('temp', path.join(appInstallDir, 'temp'));
+  } catch (e) {
+    // 安装目录不可写（如 Program Files），回退到默认路径
+    console.warn('[Path] 安装目录不可写，使用默认路径:', e.message);
+  }
+
   startApp();
 }
 
@@ -1071,6 +1094,7 @@ function formatRelativeTime(timestamp) {
 
 app.whenReady().then(() => {
   // 优先使用安装目录（.exe 所在目录）下的 datas 和 icons 文件夹
+  // 注意：app.whenReady() 之前已通过 app.setPath('userData') 将 userData 重定向到安装目录（如可写）。
   let INSTALL_DIR = path.dirname(app.getPath('exe'));
   try {
     fs.ensureDirSync(path.join(INSTALL_DIR, 'datas'));
@@ -1081,6 +1105,7 @@ app.whenReady().then(() => {
     fs.removeSync(testFile);
   } catch (e) {
     // 安装目录不可写（如 Program Files），回退到 userData
+    // userData 此时为默认路径 %APPDATA%（因为 path override 已跳过）
     appLog('WARN', '安装目录不可写，回退到 userData:', e.message);
     INSTALL_DIR = app.getPath('userData');
   }
@@ -1088,7 +1113,7 @@ app.whenReady().then(() => {
   DATA_DIR = path.join(INSTALL_DIR, 'datas');
   CONFIG_FILE = path.join(DATA_DIR, 'config.json');
   LOG_FILE = path.join(DATA_DIR, 'activity-log.json');
-  APP_LOG_FILE = path.join(app.getPath('userData'), 'app.log');
+  APP_LOG_FILE = path.join(DATA_DIR, 'app.log');
   ICON_CACHE_DIR = path.join(INSTALL_DIR, 'icons');
   BACKUP_DIR = path.join(ICON_CACHE_DIR, 'shortcuts');
   fs.ensureDirSync(ICON_CACHE_DIR);

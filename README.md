@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/version-1.2.6-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.0-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
  | Version | File | Link |
  |---------|------|------|
- | v1.2.6 (Latest) | 桌面图标收纳盒 Setup 1.2.6.exe | [Direct Download](https://github.com/easterCat/desktop-organizer/releases/download/v1.2.6/Setup.1.2.6.exe) |
+ | v1.3.0 (Latest) | 桌面图标收纳盒 Setup 1.3.0.exe | [Direct Download](https://github.com/easterCat/desktop-organizer/releases/download/v1.3.0/Setup.1.3.0.exe) |
 
  [View all releases](https://github.com/easterCat/desktop-organizer/releases)
 
@@ -103,6 +103,8 @@ Windows desktops inevitably become cluttered with shortcuts over time. **Desktop
 | **System Tray** | Minimize to tray on close; quick-access tray menu with one-click organize |
 | **Status Bar** | Real-time disk usage, memory usage, box/item counts |
 | **Keyboard Shortcuts** | `Ctrl+F` search, `Ctrl+N` new box, `Ctrl+R` refresh, `Ctrl+Shift+O` quick organize |
+| **Portable Data** | Electron cache redirected to install directory for clean uninstalls |
+| **Uninstall Cleanup** | All runtime data removed on uninstall (cache, logs, temp files) |
 
 ## Prerequisites
 
@@ -211,14 +213,18 @@ desktop-organizer/
 
 ## Configuration
 
-Application data is stored in `%APPDATA%/desktop-organizer/`:
+Application data is stored in the app installation directory (portable mode) or `%APPDATA%/desktop-organizer/` (fallback):
 
 | Path | Description |
 |------|-------------|
-| `data/config.json` | Box configurations and unassigned items |
-| `data/activity-log.json` | Activity log (max 200 entries) |
+| `datas/config.json` | Box configurations and unassigned items |
+| `datas/activity-log.json` | Activity log (max 200 entries) |
 | `icons/` | Icon cache directory (MD5-keyed, mtime-validated) |
-| `app.log` | Application runtime log |
+| `datas/app.log` | Application runtime log |
+| `cache/` | Electron internal cache |
+| `session-data/` | Electron session data |
+| `logs/` | Electron logs |
+| `temp/` | Temporary files |
 
 ### config.json Schema
 

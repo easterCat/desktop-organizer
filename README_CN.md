@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/version-1.2.6-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.0-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
  | 版本 | 文件 | 链接 |
  |------|------|------|
- | v1.2.6 (Latest) | 桌面图标收纳盒 Setup 1.2.6.exe | [直接下载](https://github.com/easterCat/desktop-organizer/releases/download/v1.2.6/Setup.1.2.6.exe) |
+ | v1.3.0 (Latest) | 桌面图标收纳盒 Setup 1.3.0.exe | [直接下载](https://github.com/easterCat/desktop-organizer/releases/download/v1.3.0/Setup.1.3.0.exe) |
 
  [查看所有版本](https://github.com/easterCat/desktop-organizer/releases)
 
@@ -103,6 +103,8 @@ Windows 桌面随着时间推移总会堆满图标，找东西越来越费劲。
 | **系统托盘** | 关闭窗口时最小化到托盘，托盘菜单支持一键整理 |
 | **状态栏** | 实时显示磁盘使用率、内存使用率、收纳盒/项目数量统计 |
 | **键盘快捷键** | `Ctrl+F` 搜索、`Ctrl+N` 新建收纳盒、`Ctrl+R` 刷新、`Ctrl+Shift+O` 快速整理 |
+| **便携数据目录** | Electron 缓存重定向到安装目录，便于清理卸载 |
+| **卸载清理** | 卸载时自动移除所有运行时数据（缓存、日志、临时文件等） |
 
 ## 环境要求
 
@@ -211,14 +213,18 @@ desktop-organizer/
 
 ## 配置说明
 
-应用数据存储在 `%APPDATA%/desktop-organizer/` 目录下：
+应用数据存储在应用安装目录（便携模式）或 `%APPDATA%/desktop-organizer/`（回退路径）：
 
 | 路径 | 说明 |
 |------|------|
-| `data/config.json` | 收纳盒配置（盒子列表、未分类项） |
-| `data/activity-log.json` | 活动日志（最多 200 条） |
+| `datas/config.json` | 收纳盒配置（盒子列表、未分类项） |
+| `datas/activity-log.json` | 活动日志（最多 200 条） |
 | `icons/` | 图标缓存目录（MD5 命名，带修改时间校验） |
-| `app.log` | 应用运行日志 |
+| `datas/app.log` | 应用运行日志 |
+| `cache/` | Electron 内部缓存 |
+| `session-data/` | Electron 会话数据 |
+| `logs/` | Electron 日志 |
+| `temp/` | 临时文件 |
 
 ### config.json 结构
 
