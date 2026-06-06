@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-06
+
+### Added
+
+- **Undo (F-06a)** — `Ctrl+Z` or toolbar ↩ button undoes the last quick-organize action within a 30-second window
+- **Smart Quick Organize (F-06a)** — PRD §5.5 four-level scoring system: exact match (score 3) auto-assigns, substring matches (score 1–2) surface as candidate suggestions with confirm/dismiss badges
+- **Batch Operations (F-31)** — Toolbar ☑ button enters batch mode; click to multi-select shortcuts, then batch-move to any box via dropdown menu
+- **Config Import/Export (F-29)** — 📤 Export saves config as JSON (without icon data); 📥 Import merges new boxes from file, skipping duplicates by name
+- **Invalid Shortcut Detection (F-34)** — Auto-detects broken shortcuts (target file missing) on startup; marks with ⚠ badge and strikethrough text; Settings → "清理无效快捷方式" removes them in bulk
+- **CPU Usage Display** — Status bar shows real-time CPU usage percentage alongside memory usage
+- **Desktop Box Position Reset (F-16b)** — Right-click menu on floating widget offers "重置位置" to re-center on primary display; auto-resets if saved position is off-screen (e.g. disconnected external monitor)
+
+### Changed
+
+- **Search Debounce (F-18)** — Search input debounced at 200ms to reduce render thrashing during fast typing
+- **Quick Organize Candidates** — Substring matches no longer auto-move; instead shown as dashed-border cards with ✓/✕ buttons for user confirmation
+- **Default Box Color** — New boxes default to `#4a90d9` (blue) instead of `#888` (grey)
+- **Icon Picker Options** — Updated default icon set: 📁 📱 💻 🔧 🎮 🎬 🌐 📝
+- **Desktop Widget Z-Order** — Floating widgets now always-on-top to stay visible over other windows
+- **Config Schema v2** — Added `version` field; auto-migrates old configs with new box fields (`displayMode`, `sortMode`, `sortOrder`, `createdTime`) and renames `hiddenItems` fields (`path` → `originalPath`, `tempPath` → `backupPath`)
+- **Portable Data Directory** — Simplified cache path redirection to use `userData` directly; removed redundant write-test in `app.whenReady()`
+
+### Removed
+
+- **Unused Async Helpers** — Removed `runPSScriptAsync` and `extractIconsConcurrently` (superseded by synchronous icon extraction with disk cache)
+
 ## [1.3.0] - 2026-06-06
 
 ### Changed

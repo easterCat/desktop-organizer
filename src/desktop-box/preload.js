@@ -28,4 +28,6 @@ contextBridge.exposeInMainWorld('boxApi', {
   },
   // 窗口移动
   windowMove: (dx, dy) => ipcRenderer.invoke('desktop-box:move', dx, dy),
+  // F-16b: 重置位置
+  resetPosition: () => ipcRenderer.invoke('desktop-box:reset-position'),
 });

@@ -945,3 +945,109 @@ body {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.3); }
 }
+
+/* --- F-31: 批量操作栏 --- */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--g-border);
+  background: rgba(62, 218, 170, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.batch-info {
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.batch-bar .btn-icon-only:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* F-31: 批量选中状态 */
+.shortcut-card.selected {
+  background: rgba(62, 218, 170, 0.15);
+  border: 1px solid rgba(62, 218, 170, 0.3);
+  border-radius: var(--rs);
+}
+
+/* F-31: 批量模式下卡片点击区域 */
+.batch-mode .shortcut-card {
+  cursor: crosshair;
+}
+
+/* 工具栏按钮激活状态 */
+.btn-icon-only.active {
+  background: rgba(62, 218, 170, 0.2);
+  color: var(--text);
+  border-color: rgba(62, 218, 170, 0.4);
+}
+
+/* --- F-34: 无效快捷方式 --- */
+.shortcut-card.invalid-shortcut {
+  opacity: 0.5;
+  position: relative;
+}
+
+.shortcut-card.invalid-shortcut::after {
+  content: '⚠';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 10px;
+  color: #e90;
+}
+
+.shortcut-card.invalid-shortcut .shortcut-name {
+  text-decoration: line-through;
+  color: var(--text3);
+}
+
+/* PRD §5.5 候选建议：虚线边框标记 */
+.shortcut-card.candidate {
+  border: 2px dashed rgba(91, 95, 199, 0.5);
+  background: rgba(91, 95, 199, 0.05);
+  position: relative;
+}
+.shortcut-card.candidate:hover {
+  background: rgba(91, 95, 199, 0.1);
+}
+
+.candidate-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text2);
+  background: rgba(91, 95, 199, 0.1);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.candidate-confirm, .candidate-dismiss {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.candidate-confirm {
+  color: #3da;
+}
+.candidate-confirm:hover {
+  background: rgba(62, 218, 170, 0.2);
+}
+.candidate-dismiss {
+  color: var(--text3);
+}
+.candidate-dismiss:hover {
+  background: rgba(255, 255, 255, 0.1);
+}

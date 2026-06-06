@@ -49,4 +49,13 @@ contextBridge.exposeInMainWorld('api', {
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
   // 重置缓存
   resetCaches: () => ipcRenderer.invoke('reset-caches'),
+  // F-06a: 撤销操作
+  undo: () => ipcRenderer.invoke('undo'),
+  canUndo: () => ipcRenderer.invoke('can-undo'),
+  // F-29: 配置导入/导出
+  exportConfig: () => ipcRenderer.invoke('export-config'),
+  importConfig: () => ipcRenderer.invoke('import-config'),
+  // F-34: 无效快捷方式检测
+  detectInvalidShortcuts: () => ipcRenderer.invoke('detect-invalid-shortcuts'),
+  cleanupInvalidShortcuts: () => ipcRenderer.invoke('cleanup-invalid-shortcuts'),
 });

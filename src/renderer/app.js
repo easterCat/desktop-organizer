@@ -4,6 +4,10 @@ let config = { boxes: [], unassigned: [] };
 let allShortcuts = [];
 let iconCache = {};
 let dragData = null;
+let searchTimer = null;
+let batchMode = false;
+let selectedItems = new Set();
+let organizeCandidates = []; // 快速整理候选项（PRD §5.5 候选建议）
 
 // CODE-06: DOM 更新优化 - 渲染缓存
 const renderCache = { unassigned: '', boxes: '' };
@@ -23,6 +27,8 @@ async function init() {
 
   await loadData();
   await refreshShortcuts();
+  // F-34: 启动时检测无效快捷方式
+  try { await window.api.detectInvalidShortcuts(); } catch (_) {}
   render();
   updateStatusBar();
 }
@@ -51,7 +57,7 @@ function syncUnassigned() {
   const existingPaths = new Set(allShortcuts.map(s => s.path));
 
   // 隐藏模式下，已隐藏的路径视为"有效"（不被过滤掉）
-  const hiddenPaths = new Set((config.hiddenItems || []).map(h => h.path));
+  const hiddenPaths = new Set((config.hiddenItems || []).map(h => h.originalPath || h.path));
   const effectivePaths = new Set([...existingPaths, ...hiddenPaths]);
 
   // 记录变更前状态 (PERF-04)
@@ -147,11 +153,23 @@ function invalidateRenderCache() {
   renderCache.boxes = '';
 }
 
+function matchesFilter(item, filter) {
+  if (!filter) return true;
+  const f = filter.toLowerCase();
+  if (item.name.toLowerCase().includes(f)) return true;
+  if (item.targetPath && item.targetPath.toLowerCase().includes(f)) return true;
+  if (item.url && item.url.toLowerCase().includes(f)) return true;
+  return false;
+}
+
 function renderUnassigned(filter = '') {
   const grid = document.getElementById('unassigned-grid');
   const count = document.getElementById('unassigned-count');
-  const items = filter ? config.unassigned.filter(i => i.name.toLowerCase().includes(filter.toLowerCase())) : config.unassigned;
+  const items = filter ? config.unassigned.filter(i => matchesFilter(i, filter)) : config.unassigned;
   count.textContent = items.length;
+
+  // 构建候选路径集合（用于快速查找）
+  const candidateMap = new Map(organizeCandidates.map(c => [c.item.path, c]));
 
   // CODE-06: 生成 HTML 并检查缓存
   let html;
@@ -160,15 +178,25 @@ function renderUnassigned(filter = '') {
   } else {
     html = items.map(item => {
       const isLoading = item.iconPath && !iconCache[item.path] && !item.iconData;
+      const candidate = candidateMap.get(item.path);
+      const candidateClass = candidate ? ' candidate' : '';
+      const candidateBadge = candidate
+        ? `<div class="candidate-badge">建议归入「${escapeHtml(candidate.boxName)}」
+             <button class="candidate-confirm" data-candidate-path="${escapeAttr(item.path)}" title="确认归入">✓</button>
+             <button class="candidate-dismiss" data-dismiss-path="${escapeAttr(item.path)}" title="忽略">✕</button>
+           </div>`
+        : '';
       return `
-      <div class="shortcut-card" draggable="true"
+      <div class="shortcut-card${candidateClass}" draggable="true"
            data-path="${escapeAttr(item.path)}"
            data-name="${escapeAttr(item.name)}"
            data-target="${escapeAttr(item.targetPath || '')}"
            data-url="${escapeAttr(item.url || '')}"
-           data-source="unassigned">
+           data-source="unassigned"
+           ${item.invalid ? 'data-invalid="true"' : ''}>
         <div class="shortcut-icon${isLoading ? ' loading' : ''}">${getIconHtml(item)}</div>
         <div class="shortcut-name" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</div>
+        ${candidateBadge}
       </div>
     `}).join('');
   }
@@ -181,7 +209,33 @@ function renderUnassigned(filter = '') {
 
   grid.querySelectorAll('.shortcut-card').forEach(card => {
     bindDragEvents(card);
-    card.addEventListener('dblclick', () => window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url));
+    // F-31: 批量模式下左键点击切换选中
+    card.addEventListener('click', (e) => {
+      if (batchMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleItemSelection(card.dataset.path);
+      }
+    });
+    card.addEventListener('dblclick', () => {
+      if (!batchMode) window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url);
+    });
+    // F-34: 无效快捷方式标记
+    if (card.dataset.invalid === 'true') card.classList.add('invalid-shortcut');
+  });
+
+  // 候选建议：确认/忽略按钮
+  grid.querySelectorAll('.candidate-confirm').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      confirmCandidate(btn.dataset.candidatePath);
+    });
+  });
+  grid.querySelectorAll('.candidate-dismiss').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissCandidate(btn.dataset.dismissPath);
+    });
   });
 }
 
@@ -197,7 +251,7 @@ function renderBoxes(filter = '') {
 
   // CODE-06: 生成 HTML 并检查缓存
   const html = config.boxes.map((box, idx) => {
-    const items = filter ? box.items.filter(i => i.name.toLowerCase().includes(filter.toLowerCase())) : box.items;
+    const items = filter ? box.items.filter(i => matchesFilter(i, filter)) : box.items;
     const isCollapsed = box.collapsed ? 'collapsed' : '';
     const toggleIcon = box.collapsed ? 'collapsed' : '';
     const desktopBadge = box.onDesktop ? '<span class="box-desktop-badge">桌面</span>' : '';
@@ -233,7 +287,8 @@ function renderBoxes(filter = '') {
                    data-name="${escapeAttr(item.name)}"
                    data-target="${escapeAttr(item.targetPath || '')}"
                    data-url="${escapeAttr(item.url || '')}"
-                   data-source="box-${idx}">
+                   data-source="box-${idx}"
+                   ${item.invalid ? 'data-invalid="true"' : ''}>
                 <div class="shortcut-icon${isLoading ? ' loading' : ''}">${getIconHtml(item)}</div>
                 <div class="shortcut-name" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</div>
               </div>
@@ -285,7 +340,19 @@ function renderBoxes(filter = '') {
 
   container.querySelectorAll('.shortcut-card').forEach(card => {
     bindDragEvents(card);
-    card.addEventListener('dblclick', () => window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url));
+    // F-31: 批量模式下左键点击切换选中
+    card.addEventListener('click', (e) => {
+      if (batchMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleItemSelection(card.dataset.path);
+      }
+    });
+    card.addEventListener('dblclick', () => {
+      if (!batchMode) window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url);
+    });
+    // F-34: 无效快捷方式标记
+    if (card.dataset.invalid === 'true') card.classList.add('invalid-shortcut');
   });
 
   container.querySelectorAll('.box-content').forEach(zone => {
@@ -611,8 +678,21 @@ function bindToolbar() {
     render(document.getElementById('search-input').value);
     showToast('刷新完成');
   });
-  document.getElementById('search-input').addEventListener('input', (e) => render(e.target.value));
+  // F-18: 搜索 debounce 200ms
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => render(e.target.value), 200);
+  });
   document.getElementById('btn-quick-organize').addEventListener('click', () => quickOrganize());
+  // F-06a: 撤销按钮
+  document.getElementById('btn-undo').addEventListener('click', () => undoAction());
+  // F-29: 导入/导出按钮
+  document.getElementById('btn-export').addEventListener('click', () => exportConfig());
+  document.getElementById('btn-import').addEventListener('click', () => importConfig());
+  // F-31: 批量操作按钮
+  document.getElementById('btn-batch').addEventListener('click', () => toggleBatchMode());
+  document.getElementById('btn-batch-move').addEventListener('click', () => batchMoveToBox());
+  document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleBatchMode());
 }
 
 // --- 模态框 ---
@@ -630,10 +710,10 @@ function bindModal() {
     document.querySelectorAll('.icon-opt').forEach(o => o.classList.remove('selected'));
     document.querySelector('.icon-opt[data-icon="📁"]').classList.add('selected');
     document.querySelectorAll('.tone-opt').forEach(o => o.classList.remove('selected'));
-    document.querySelector('.tone-opt[data-color="#888"]').classList.add('selected');
+    document.querySelector('.tone-opt[data-color="#4a90d9"]').classList.add('selected');
     document.querySelectorAll('.mode-opt').forEach(o => o.classList.remove('selected'));
     document.querySelector('.mode-opt[data-mode="panel"]').classList.add('selected');
-    selectedIcon = '📁'; selectedColor = '#888'; selectedMode = 'panel';
+    selectedIcon = '📁'; selectedColor = '#4a90d9'; selectedMode = 'panel';
   });
 
   document.getElementById('modal-cancel').addEventListener('click', () => modal.style.display = 'none');
@@ -677,7 +757,8 @@ function bindModal() {
       collapsed: false,
       onDesktop: selectedMode === 'desktop',
       desktopPos: { x: 100 + (config.boxes.length * 30) % 300, y: 100 + (config.boxes.length * 30) % 200 },
-      desktopSize: { width: 260, height: 320 }
+      desktopSize: { width: 260, height: 320 },
+      createdTime: Date.now()
     };
 
     config.boxes.push(newBox);
@@ -745,6 +826,13 @@ async function updateStatusBar() {
       document.getElementById('status-mem').textContent = `💾 ${memPercent}%`;
       document.getElementById('status-mem').title = `内存: ${formatBytes(sysInfo.memUsed)} / ${formatBytes(sysInfo.memTotal)}`;
     }
+
+    // CPU 使用率
+    const cpuEl = document.getElementById('status-cpu');
+    if (cpuEl && sysInfo.cpuUsage >= 0) {
+      cpuEl.textContent = `🖥 ${sysInfo.cpuUsage}%`;
+      cpuEl.title = `CPU: ${sysInfo.cpuModel} (${sysInfo.cpuCores} 核)`;
+    }
   } catch (e) {}
 }
 
@@ -794,13 +882,204 @@ async function quickOrganize() {
 
   showToast('正在快速整理...');
   const result = await window.api.quickOrganize();
-  if (result.moved > 0) {
-    config = await window.api.loadConfig();
-    render(document.getElementById('search-input').value);
+  config = await window.api.loadConfig();
+  invalidateRenderCache();
+
+  // 存储候选建议供渲染使用
+  organizeCandidates = result.candidates || [];
+
+  render(document.getElementById('search-input').value);
+
+  if (result.moved > 0 && organizeCandidates.length > 0) {
+    showToast(`快速整理完成，自动归类 ${result.moved} 个快捷方式，${organizeCandidates.length} 个待确认`);
+  } else if (result.moved > 0) {
     showToast(`快速整理完成，自动归类 ${result.moved} 个快捷方式`);
+  } else if (organizeCandidates.length > 0) {
+    showToast(`${organizeCandidates.length} 个候选项待确认`);
   } else {
     showToast('没有可自动归类的快捷方式');
   }
+}
+
+// 确认候选建议：将候选项归入建议的盒子
+async function confirmCandidate(itemPath) {
+  const idx = organizeCandidates.findIndex(c => c.item.path === itemPath);
+  if (idx < 0) return;
+  const candidate = organizeCandidates[idx];
+  const boxIdx = candidate.boxIdx;
+
+  // 从 unassigned 中移除并归入盒子
+  const itemIdx = config.unassigned.findIndex(i => i.path === itemPath);
+  if (itemIdx >= 0) {
+    const item = config.unassigned.splice(itemIdx, 1)[0];
+    config.boxes[boxIdx].items.push(item);
+    await saveConfig();
+    organizeCandidates.splice(idx, 1);
+    invalidateRenderCache();
+    render(document.getElementById('search-input').value);
+    showToast(`已将「${item.name}」归入「${config.boxes[boxIdx].name}」`);
+    window.api.logActivity('move', `「${item.name}」归入「${config.boxes[boxIdx].name}」（候选确认）`);
+  }
+}
+
+// 忽略候选建议：保留在未分类区
+function dismissCandidate(itemPath) {
+  organizeCandidates = organizeCandidates.filter(c => c.item.path !== itemPath);
+  render(document.getElementById('search-input').value);
+}
+
+// --- F-06a: 撤销操作 ---
+async function undoAction() {
+  const result = await window.api.undo();
+  if (result.ok) {
+    config = await window.api.loadConfig();
+    invalidateRenderCache();
+    render(document.getElementById('search-input').value);
+    showToast('已撤销上一步操作');
+  } else {
+    showToast(result.error || '无法撤销');
+  }
+}
+
+// --- F-29: 配置导入/导出 ---
+async function exportConfig() {
+  showToast('正在导出...');
+  const result = await window.api.exportConfig();
+  if (result.ok) {
+    showToast('配置已导出');
+  } else if (result.error) {
+    showToast('导出失败: ' + result.error);
+  }
+}
+
+async function importConfig() {
+  showToast('正在导入...');
+  const result = await window.api.importConfig();
+  if (result.ok) {
+    config = await window.api.loadConfig();
+    invalidateRenderCache();
+    render(document.getElementById('search-input').value);
+    showToast(`导入完成，新增 ${result.imported} 个收纳盒`);
+  } else if (result.error) {
+    showToast('导入失败: ' + result.error);
+  }
+}
+
+// --- F-31: 批量操作 ---
+function toggleBatchMode() {
+  batchMode = !batchMode;
+  selectedItems.clear();
+  const batchBar = document.getElementById('batch-bar');
+  const batchBtn = document.getElementById('btn-batch');
+  if (batchBar) batchBar.style.display = batchMode ? 'flex' : 'none';
+  if (batchBtn) batchBtn.classList.toggle('active', batchMode);
+  updateBatchCount();
+  render(document.getElementById('search-input').value);
+}
+
+function updateBatchCount() {
+  const countEl = document.getElementById('batch-count');
+  if (countEl) countEl.textContent = `已选 ${selectedItems.size} 项`;
+  const moveBtn = document.getElementById('btn-batch-move');
+  if (moveBtn) moveBtn.disabled = selectedItems.size === 0;
+}
+
+function toggleItemSelection(path) {
+  if (selectedItems.has(path)) selectedItems.delete(path);
+  else selectedItems.add(path);
+  updateBatchCount();
+  // 更新卡片选中状态
+  const card = document.querySelector(`.shortcut-card[data-path="${CSS.escape(path)}"]`);
+  if (card) card.classList.toggle('selected', selectedItems.has(path));
+}
+
+async function batchMoveToBox() {
+  if (selectedItems.size === 0) return;
+  if (config.boxes.length === 0) { showToast('请先创建收纳盒'); return; }
+
+  // 弹出盒子选择菜单
+  const moveMenu = document.getElementById('move-menu');
+  moveMenu.innerHTML = config.boxes.map((box, idx) => `
+    <div class="ctx-item" data-batch-move-to="${idx}">${box.icon} ${escapeHtml(box.name)}</div>
+  `).join('');
+  moveMenu.style.display = 'block';
+
+  // 定位到批量操作按钮附近
+  const batchBar = document.getElementById('batch-bar');
+  const rect = batchBar ? batchBar.getBoundingClientRect() : { left: 100, top: 100 };
+  moveMenu.style.left = rect.left + 'px';
+  moveMenu.style.top = (rect.top - moveMenu.offsetHeight - 5) + 'px';
+
+  // 绑定选择事件
+  const handleSelect = async (e) => {
+    const option = e.target.closest('[data-batch-move-to]');
+    if (!option) return;
+    moveMenu.style.display = 'none';
+    moveMenu.removeEventListener('click', handleSelect);
+    document.removeEventListener('click', handleOutside);
+
+    const boxIdx = parseInt(option.dataset.batchMoveTo);
+    const targetBox = config.boxes[boxIdx];
+    let moved = 0;
+    for (const path of selectedItems) {
+      const idx = config.unassigned.findIndex(i => i.path === path);
+      if (idx >= 0) {
+        targetBox.items.push(config.unassigned.splice(idx, 1)[0]);
+        moved++;
+      } else {
+        for (const box of config.boxes) {
+          const bIdx = box.items.findIndex(i => i.path === path);
+          if (bIdx >= 0) {
+            targetBox.items.push(box.items.splice(bIdx, 1)[0]);
+            moved++;
+            break;
+          }
+        }
+      }
+    }
+    if (moved > 0) {
+      await saveConfig();
+      toggleBatchMode();
+      render(document.getElementById('search-input').value);
+      showToast(`批量移动 ${moved} 个图标到「${targetBox.name}」`);
+      window.api.logActivity('move', `批量移动 ${moved} 个图标到「${targetBox.name}」`);
+    }
+  };
+
+  const handleOutside = (e) => {
+    if (!moveMenu.contains(e.target)) {
+      moveMenu.style.display = 'none';
+      moveMenu.removeEventListener('click', handleSelect);
+      document.removeEventListener('click', handleOutside);
+    }
+  };
+
+  moveMenu.addEventListener('click', handleSelect);
+  setTimeout(() => document.addEventListener('click', handleOutside), 0);
+}
+
+// --- F-30: 排序功能 ---
+async function sortBox(boxIdx, mode) {
+  const box = config.boxes[boxIdx];
+  if (!box) return;
+  box.sortMode = mode;
+  switch (mode) {
+    case 'alpha':
+      box.items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+      break;
+    case 'createTime':
+      box.items.sort((a, b) => (a.createdTime || 0) - (b.createdTime || 0));
+      break;
+    case 'recent':
+      // 按最近使用排序（基于 targetPath 的修改时间，简化为名称倒序）
+      box.items.sort((a, b) => b.name.localeCompare(a.name, 'zh-CN'));
+      break;
+    case 'manual':
+    default:
+      break;
+  }
+  await saveConfig();
+  render(document.getElementById('search-input').value);
 }
 
 // --- P2: 设置面板 (D03) ---
@@ -934,6 +1213,27 @@ function bindSettingsModal() {
       showToast('桌面路径已更新');
     }
   });
+
+  // F-34: 清理无效快捷方式
+  const cleanupBtn = document.getElementById('btn-cleanup-invalid');
+  if (cleanupBtn) {
+    cleanupBtn.addEventListener('click', async () => {
+      const confirmed = await showConfirm('清理无效快捷方式', '确定要移除所有目标不存在的快捷方式吗？');
+      if (!confirmed) return;
+      try {
+        const result = await window.api.cleanupInvalidShortcuts();
+        if (result && result.removed > 0) {
+          config = await window.api.loadConfig();
+          render(document.getElementById('search-input').value);
+          showToast(`已清理 ${result.removed} 个无效快捷方式`);
+        } else {
+          showToast('没有需要清理的无效快捷方式');
+        }
+      } catch (e) {
+        showToast('清理失败: ' + e.message);
+      }
+    });
+  }
 }
 
 // --- P2: 活动日志面板 (D04) ---
@@ -1033,6 +1333,11 @@ function bindKeyboardShortcuts() {
     if (e.ctrlKey && e.shiftKey && e.key === 'O') {
       e.preventDefault();
       quickOrganize();
+    }
+    // F-06a: Ctrl+Z 撤销
+    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undoAction();
     }
     // Escape: 关闭搜索/模态框
     if (e.key === 'Escape') {

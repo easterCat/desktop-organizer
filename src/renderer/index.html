@@ -24,7 +24,8 @@
   <div class="toolbar">
     <button type="button" class="btn-create" id="btn-add-box">+ 新建</button>
     <button type="button" class="btn-icon-only" id="btn-refresh" title="刷新">↻</button>
-    <button type="button" class="btn-icon-only" id="btn-quick-organize" title="快速整理">⚡</button>
+    <button type="button" class="btn-icon-only" id="btn-quick-organize" title="快速整理 (Ctrl+Shift+O)">⚡</button>
+    <button type="button" class="btn-icon-only" id="btn-undo" title="撤销 (Ctrl+Z)">↩</button>
     <div class="toolbar-sep"></div>
     <div class="search-wrap">
       <svg class="search-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>
@@ -32,9 +33,19 @@
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-right">
+      <button type="button" class="btn-icon-only" id="btn-batch" title="批量操作">☑</button>
+      <button type="button" class="btn-icon-only" id="btn-export" title="导出配置">📤</button>
+      <button type="button" class="btn-icon-only" id="btn-import" title="导入配置">📥</button>
       <button type="button" class="btn-icon-only" id="btn-activity-log" title="活动日志">📋</button>
       <button type="button" class="btn-icon-only" id="btn-settings" title="设置">⚙️</button>
     </div>
+  </div>
+
+  <!-- F-31: 批量操作栏 -->
+  <div class="batch-bar" id="batch-bar" style="display:none;">
+    <span class="batch-info" id="batch-count">已选 0 项</span>
+    <button type="button" class="btn-icon-only" id="btn-batch-move" title="批量移入第一个收纳盒" disabled>📥 移入</button>
+    <button type="button" class="btn-icon-only" id="btn-batch-cancel" title="取消批量模式">✕</button>
   </div>
 
   <!-- 主内容 -->
@@ -72,19 +83,19 @@
           <span class="field-label">图标</span>
           <div class="icon-row" id="icon-picker">
             <span class="icon-opt selected" data-icon="📁">📁</span>
-            <span class="icon-opt" data-icon="💼">💼</span>
+            <span class="icon-opt" data-icon="📱">📱</span>
+            <span class="icon-opt" data-icon="💻">💻</span>
+            <span class="icon-opt" data-icon="🔧">🔧</span>
             <span class="icon-opt" data-icon="🎮">🎮</span>
-            <span class="icon-opt" data-icon="🛠">🛠</span>
+            <span class="icon-opt" data-icon="🎬">🎬</span>
             <span class="icon-opt" data-icon="🌐">🌐</span>
-            <span class="icon-opt" data-icon="🎵">🎵</span>
-            <span class="icon-opt" data-icon="📚">📚</span>
-            <span class="icon-opt" data-icon="🎨">🎨</span>
+            <span class="icon-opt" data-icon="📝">📝</span>
           </div>
         </div>
         <div class="field">
           <span class="field-label">色调</span>
           <div class="tone-row" id="color-picker">
-            <span class="tone-opt selected" data-color="#888" style="background:linear-gradient(135deg,#666,#aaa)"></span>
+            <span class="tone-opt selected" data-color="#4a90d9" style="background:linear-gradient(135deg,#3a7bc8,#6aa8ef)"></span>
             <span class="tone-opt" data-color="#5b5fc7" style="background:linear-gradient(135deg,#4a4eb5,#7c80e0)"></span>
             <span class="tone-opt" data-color="#3da" style="background:linear-gradient(135deg,#2cb,#5ed)"></span>
             <span class="tone-opt" data-color="#d45" style="background:linear-gradient(135deg,#c34,#f68)"></span>
@@ -178,6 +189,12 @@
           <div class="toggle-hint">清除所有图标缓存并重新提取，首次加载会稍慢</div>
         </div>
         -->
+        <!-- F-34: 无效快捷方式清理 -->
+        <div class="field">
+          <span class="field-label">失效管理</span>
+          <button type="button" class="btn-ghost" id="btn-cleanup-invalid" style="width:100%;text-align:center;">清理无效快捷方式</button>
+          <div class="toggle-hint">检测并移除目标不存在的快捷方式</div>
+        </div>
         <div class="field">
           <span class="field-label">应用信息</span>
           <div class="settings-info">
@@ -244,6 +261,8 @@
     </div>
     <div class="status-center"></div>
     <div class="status-right">
+      <span class="status-item" id="status-cpu" title="CPU 使用率">🖥 --</span>
+      <span class="status-sep"></span>
       <span class="status-item" id="status-mem" title="内存使用">💾 --</span>
       <span class="status-sep"></span>
       <span class="status-item status-time" id="status-last-organize" title="上次整理时间">🕐 --</span>

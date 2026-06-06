@@ -36,6 +36,10 @@ let tray = null;
 let activityLog = [];
 const MAX_LOG_ENTRIES = 200;
 
+// F-06a: 撤销栈（仅保留最近1条操作快照，30秒有效窗口）
+const UNDO_EXPIRY_MS = 30000;
+let undoStack = null; // { type, snapshot, timestamp }
+
 function addActivity(type, message, detail = '') {
   const entry = {
     time: Date.now(),
@@ -65,9 +69,12 @@ function loadActivityLog() {
   }
 }
 
-// 获取系统信息（磁盘使用率、内存）
+// 获取系统信息（磁盘使用率、内存、CPU）
+let lastCpuInfo = null;
+let lastCpuTime = 0;
+
 function getSystemInfo() {
-  const info = { diskTotal: 0, diskFree: 0, diskUsed: 0, memTotal: 0, memFree: 0, memUsed: 0, cpuModel: '', cpuCores: 0 };
+  const info = { diskTotal: 0, diskFree: 0, diskUsed: 0, memTotal: 0, memFree: 0, memUsed: 0, cpuModel: '', cpuCores: 0, cpuUsage: 0 };
 
   // 内存信息
   info.memTotal = os.totalmem();
@@ -78,6 +85,18 @@ function getSystemInfo() {
   const cpus = os.cpus();
   info.cpuModel = cpus.length > 0 ? cpus[0].model : 'Unknown';
   info.cpuCores = cpus.length;
+
+  // CPU 使用率（通过两次采样计算）
+  const currentIdle = cpus.reduce((sum, c) => sum + c.times.idle, 0);
+  const currentTotal = cpus.reduce((sum, c) => sum + Object.values(c.times).reduce((a, b) => a + b, 0), 0);
+  const now = Date.now();
+  if (lastCpuInfo && (now - lastCpuTime) > 0) {
+    const idleDiff = currentIdle - lastCpuInfo.idle;
+    const totalDiff = currentTotal - lastCpuInfo.total;
+    info.cpuUsage = totalDiff > 0 ? Math.round(((totalDiff - idleDiff) / totalDiff) * 100) : 0;
+  }
+  lastCpuInfo = { idle: currentIdle, total: currentTotal };
+  lastCpuTime = now;
 
   // 磁盘信息（桌面所在盘符）
   try {
@@ -109,40 +128,117 @@ function getSystemInfo() {
   return info;
 }
 
-// 快速整理：将未分类的快捷方式按名称关键词自动归入已有收纳盒
+// --- F-06a: 撤销操作 ---
+function saveUndoSnapshot(config) {
+  // 保存当前 unassigned 和 boxes 的深拷贝作为撤销快照
+  undoStack = {
+    type: 'organize',
+    snapshot: JSON.parse(JSON.stringify({
+      unassigned: config.unassigned,
+      boxes: config.boxes.map(b => ({ id: b.id, items: b.items }))
+    })),
+    timestamp: Date.now()
+  };
+}
+
+function undoLastAction() {
+  if (!undoStack) return { ok: false, error: '无可撤销操作' };
+  if (Date.now() - undoStack.timestamp > UNDO_EXPIRY_MS) {
+    undoStack = null;
+    return { ok: false, error: '撤销已过期（30秒）' };
+  }
+  const config = loadConfig();
+  // 恢复 unassigned 和各 box 的 items
+  config.unassigned = undoStack.snapshot.unassigned;
+  for (const snapshotBox of undoStack.snapshot.boxes) {
+    const box = config.boxes.find(b => b.id === snapshotBox.id);
+    if (box) box.items = snapshotBox.items;
+  }
+  saveConfig(config);
+  undoStack = null;
+  addActivity('organize', '撤销上一次操作');
+  notifyAllDesktopBoxes();
+  return { ok: true };
+}
+
+// 计算快捷方式名称与盒子名称的匹配分数（PRD §5.5 四级评分体系）
+// 得分 3：精确匹配（名称完全相等，不区分大小写）
+// 得分 2：盒子名包含快捷方式名
+// 得分 1：快捷方式名包含盒子名
+// 得分 0：无匹配
+function computeMatchScore(shortcutName, boxName) {
+  const sLower = shortcutName.toLowerCase();
+  const bLower = boxName.toLowerCase();
+
+  // 精确匹配（名称完全相等）
+  if (sLower === bLower) return 3;
+  // 盒子名包含快捷方式名（如盒子"浏览器"匹配快捷方式"浏览器收藏"→ 是）
+  if (bLower.includes(sLower)) return 2;
+  // 快捷方式名包含盒子名（如快捷方式"开发工具箱"匹配盒子"工具"→ 是）
+  if (sLower.includes(bLower)) return 1;
+
+  return 0;
+}
+
+// 快速整理：基于 PRD §5.5 四级评分体系的自动分类，宁可漏分类不可误分类
+// 决策规则：
+//   唯一最高分 ≥ 3 → 自动归入（仅精确匹配自动归入）
+//   最高分 = 2 且仅一个盒子匹配 → 标记为候选建议
+//   最高分 = 1 且仅一个盒子匹配 → 标记为候选建议
+//   最高分 ≥ 2 且多个盒子匹配 → 跳过（模糊匹配多义冲突）
+//   所有得分 = 0 → 留在未分类区
 function quickOrganize() {
   const config = loadConfig();
-  if (config.boxes.length === 0 || config.unassigned.length === 0) return { moved: 0 };
+  if (config.boxes.length === 0 || config.unassigned.length === 0) return { moved: 0, candidates: [] };
+
+  // 保存撤销快照
+  saveUndoSnapshot(config);
 
   let moved = 0;
+  const candidates = []; // 候选建议（子串匹配，需用户确认）
   const remaining = [];
 
   for (const item of config.unassigned) {
-    let matched = false;
-    const nameLower = item.name.toLowerCase();
+    let bestScore = 0;
+    let bestBoxIdx = -1;
+    let matchCount = 0; // 匹配到的盒子数量（得分 > 0）
 
-    for (const box of config.boxes) {
-      const boxNameLower = box.name.toLowerCase();
-      // 简单关键词匹配：收纳盒名称包含在快捷方式名称中，或反之
-      if (nameLower.includes(boxNameLower) || boxNameLower.includes(nameLower)) {
-        box.items.push(item);
-        moved++;
-        matched = true;
-        break;
+    for (let i = 0; i < config.boxes.length; i++) {
+      const score = computeMatchScore(item.name, config.boxes[i].name);
+      if (score > 0) matchCount++;
+      if (score > bestScore) {
+        bestScore = score;
+        bestBoxIdx = i;
       }
     }
 
-    if (!matched) remaining.push(item);
+    // 按 PRD §5.5 决策规则处理
+    if (bestScore >= 3 && matchCount === 1) {
+      // 精确匹配且唯一 → 自动归入
+      config.boxes[bestBoxIdx].items.push(item);
+      moved++;
+    } else if (bestScore === 2 && matchCount === 1) {
+      // 盒子名包含快捷方式名，仅一个盒子匹配 → 候选建议
+      candidates.push({ item, score: bestScore, boxName: config.boxes[bestBoxIdx].name, boxIdx: bestBoxIdx });
+      remaining.push(item);
+    } else if (bestScore === 1 && matchCount === 1) {
+      // 快捷方式名包含盒子名，仅一个盒子匹配 → 候选建议
+      candidates.push({ item, score: bestScore, boxName: config.boxes[bestBoxIdx].name, boxIdx: bestBoxIdx });
+      remaining.push(item);
+    } else {
+      // 多匹配冲突或无匹配 → 跳过
+      remaining.push(item);
+    }
   }
 
-  if (moved > 0) {
+  if (moved > 0 || candidates.length > 0) {
     config.unassigned = remaining;
     config.lastOrganizeTime = Date.now();
     saveConfig(config);
-    addActivity('organize', `快速整理完成，自动归类 ${moved} 个快捷方式`);
+    addActivity('organize', `快速整理完成，自动归类 ${moved} 个快捷方式` + (candidates.length > 0 ? `，${candidates.length} 个待确认` : ''));
   }
 
-  return { moved };
+  return { moved, candidates };
 }
 
 function createWindow() {
@@ -178,7 +274,7 @@ function createWindow() {
 function loadConfig() {
   fs.ensureDirSync(DATA_DIR);
   if (!fs.existsSync(CONFIG_FILE)) {
-    const defaultConfig = { boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
+    const defaultConfig = { version: 2, boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
     fs.writeJsonSync(CONFIG_FILE, defaultConfig, { spaces: 2 });
     return defaultConfig;
   }
@@ -189,11 +285,17 @@ function loadConfig() {
     }
     // 兼容旧数据：为缺少 id 的 box 生成 id
     let dirty = false;
+    if (!config.version) { config.version = 2; dirty = true; }
     for (const box of config.boxes) {
       if (!box.id) {
         box.id = 'box_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
         dirty = true;
       }
+      // v1.4: 补充 Box 新增字段默认值
+      if (!box.displayMode) { box.displayMode = box.onDesktop ? 'desktop' : 'panel'; dirty = true; }
+      if (!box.sortMode) { box.sortMode = 'manual'; dirty = true; }
+      if (!box.sortOrder) { box.sortOrder = []; dirty = true; }
+      if (!box.createdTime) { box.createdTime = Date.now(); dirty = true; }
     }
     // 兼容旧数据：隐藏图标相关字段默认值
     if (typeof config.hideCollectedIcons !== 'boolean') {
@@ -204,13 +306,18 @@ function loadConfig() {
       config.hiddenItems = [];
       dirty = true;
     }
+    // 兼容旧数据：hiddenItems 字段名迁移（path → originalPath, tempPath → backupPath）
+    for (const h of config.hiddenItems) {
+      if (h.path && !h.originalPath) { h.originalPath = h.path; delete h.path; dirty = true; }
+      if (h.tempPath && !h.backupPath) { h.backupPath = h.tempPath; delete h.tempPath; dirty = true; }
+    }
     if (dirty) saveConfig(config);
     return config;
   } catch (e) {
     console.error('[Config] 配置文件读取失败，已备份并重置:', e.message);
     const backupPath = CONFIG_FILE + '.bak.' + Date.now();
     try { fs.copySync(CONFIG_FILE, backupPath); } catch (_) {}
-    const defaultConfig = { boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
+    const defaultConfig = { version: 2, boxes: [], unassigned: [], hideCollectedIcons: true, hiddenItems: [] };
     fs.writeJsonSync(CONFIG_FILE, defaultConfig, { spaces: 2 });
     return defaultConfig;
   }
@@ -267,18 +374,6 @@ function runPSScript(scriptName, args = []) {
   } catch (e) { return ''; }
 }
 
-// 异步 PowerShell 调用 (PERF-01)
-function runPSScriptAsync(scriptName, args = []) {
-  return new Promise((resolve) => {
-    const scriptPath = path.join(PS_DIR, scriptName);
-    const psArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
-    for (const a of args) psArgs.push('-Arg', a);
-    execFile('powershell', psArgs, { encoding: 'utf-8', timeout: 10000 }, (err, stdout) => {
-      resolve(err ? '' : (stdout || '').trim());
-    });
-  });
-}
-
 // --- 图标提取 ---
 function extractIconBase64(iconPath) {
   if (!iconPath) return null;
@@ -299,42 +394,6 @@ function extractIconBase64(iconPath) {
   return base64;
 }
 
-// 并发异步图标提取 (PERF-01)
-async function extractIconsConcurrently(shortcuts, concurrency = 4) {
-  const queue = shortcuts.filter(sc => sc.iconPath && !sc.iconData && fs.existsSync(sc.iconPath));
-  if (queue.length === 0) return;
-
-  const workers = [];
-  for (let i = 0; i < concurrency; i++) {
-    workers.push((async () => {
-      while (queue.length > 0) {
-        const sc = queue.shift();
-        if (!sc) break;
-        // 内存缓存命中
-        if (iconCache.has(sc.iconPath)) {
-          sc.iconData = iconCache.get(sc.iconPath);
-        } else {
-          // 磁盘缓存
-          const diskCached = getCachedIcon(sc.iconPath);
-          if (diskCached) {
-            sc.iconData = diskCached;
-            iconCache.set(sc.iconPath, diskCached);
-          } else {
-            const result = await runPSScriptAsync('extract-icon.ps1', [sc.iconPath]);
-            sc.iconData = result || null;
-            iconCache.set(sc.iconPath, sc.iconData);
-            if (sc.iconData) setCachedIcon(sc.iconPath, sc.iconData);
-          }
-        }
-        // 推送增量更新到渲染进程（包括失败的情况，让渲染器移除 loading 状态）
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('icon-updated', { path: sc.path, iconData: sc.iconData });
-        }
-      }
-    })());
-  }
-  await Promise.all(workers);
-}
 
 function getDesktopPath() {
   return path.join(os.homedir(), 'Desktop');
@@ -426,7 +485,83 @@ function enrichShortcut(shortcut) {
   return shortcut;
 }
 
+// F-34: 检测无效快捷方式（目标不存在）
+function detectInvalidShortcuts() {
+  const config = loadConfig();
+  let invalidCount = 0;
+  const allItems = [...config.unassigned];
+  for (const box of config.boxes) allItems.push(...box.items);
+
+  for (const item of allItems) {
+    const isInvalid = !item.targetPath || !fs.existsSync(item.targetPath);
+    if (item.invalid !== isInvalid) {
+      item.invalid = isInvalid;
+      invalidCount++;
+    }
+  }
+
+  if (invalidCount > 0) saveConfig(config);
+  return { invalidCount, total: allItems.length };
+}
+
+// F-34: 批量清理无效快捷方式
+function cleanupInvalidShortcuts() {
+  const config = loadConfig();
+  let removed = 0;
+
+  // 从 unassigned 中移除无效项
+  const before = config.unassigned.length;
+  config.unassigned = config.unassigned.filter(item => !item.invalid);
+  removed += before - config.unassigned.length;
+
+  // 从各 box 中移除无效项
+  for (const box of config.boxes) {
+    const beforeBox = box.items.length;
+    box.items = box.items.filter(item => !item.invalid);
+    removed += beforeBox - box.items.length;
+  }
+
+  if (removed > 0) {
+    saveConfig(config);
+    addActivity('system', `清理 ${removed} 个无效快捷方式`);
+  }
+  return { removed };
+}
+
 // ============ 桌面浮动窗口管理 ============
+
+// F-16b: 检查坐标是否在任一显示器可见区域内
+function isPositionVisible(x, y) {
+  const displays = screen.getAllDisplays();
+  for (const display of displays) {
+    const { x: dx, y: dy, width: dw, height: dh } = display.bounds;
+    if (x >= dx && x < dx + dw && y >= dy && y < dy + dh) return true;
+  }
+  return false;
+}
+
+// F-16b: 获取主显示器中心位置
+function getPrimaryDisplayCenter(width, height) {
+  const display = screen.getPrimaryDisplay();
+  const { x: dx, y: dy, width: dw, height: dh } = display.bounds;
+  return { x: Math.round(dx + (dw - width) / 2), y: Math.round(dy + (dh - height) / 2) };
+}
+
+// F-16b: 重置浮窗位置到主显示器中心
+function resetDesktopBoxPosition(boxId) {
+  const config = loadConfig();
+  const box = config.boxes.find(b => b.id === boxId);
+  if (!box) return false;
+  const size = box.desktopSize || { width: 260, height: 320 };
+  const center = getPrimaryDisplayCenter(size.width, size.height);
+  box.desktopPos = center;
+  saveConfig(config);
+  const win = desktopBoxes.get(boxId);
+  if (win && !win.isDestroyed()) {
+    win.setPosition(center.x, center.y);
+  }
+  return true;
+}
 
 function createDesktopBox(boxId) {
   // 如果窗口已存在，聚焦
@@ -444,8 +579,15 @@ function createDesktopBox(boxId) {
   const box = config.boxes.find(b => b.id === boxId);
   if (!box) return null;
 
-  const pos = box.desktopPos || { x: 100, y: 100 };
   const size = box.desktopSize || { width: 260, height: 320 };
+  let pos = box.desktopPos || { x: 100, y: 100 };
+
+  // F-16b: 如果位置不可见（如外接显示器断开），重置到主显示器中心
+  if (!isPositionVisible(pos.x, pos.y)) {
+    pos = getPrimaryDisplayCenter(size.width, size.height);
+    box.desktopPos = pos;
+    saveConfig(config);
+  }
 
   const win = new BrowserWindow({
     x: pos.x,
@@ -457,7 +599,7 @@ function createDesktopBox(boxId) {
     frame: false,
     transparent: true,
     resizable: true,
-    alwaysOnTop: false,
+    alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
     icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
@@ -556,15 +698,13 @@ function hideCollectedIconsFn() {
   let count = 0;
   // 保留已有 hiddenItems，追加新隐藏的项
   const hiddenItems = Array.isArray(config.hiddenItems) ? [...config.hiddenItems] : [];
-  const alreadyHidden = new Set(hiddenItems.map(h => h.path));
+  const alreadyHidden = new Set(hiddenItems.map(h => h.originalPath || h.path));
 
-  // 只移动桌面文件到 backup，不清空 box.items / unassigned（保留面板和浮动窗口中的图标）
+  // 仅移动已收纳到盒子中的图标（PRD §5.6）
   const itemsToHide = [];
   for (const box of config.boxes) {
     for (const item of box.items) itemsToHide.push(item);
   }
-  // 未分类面板中的图标也视为已整理，一并隐藏
-  for (const item of config.unassigned) itemsToHide.push(item);
 
   for (const item of itemsToHide) {
     const desktopPath = item.path;
@@ -584,7 +724,7 @@ function hideCollectedIconsFn() {
 
     try {
       fs.moveSync(desktopPath, finalBackupPath);
-      hiddenItems.push({ path: desktopPath, tempPath: finalBackupPath });
+      hiddenItems.push({ originalPath: desktopPath, backupPath: finalBackupPath });
       count++;
     } catch (e) {
       appLog('ERROR', '隐藏图标失败:', desktopPath, e.message);
@@ -609,11 +749,11 @@ function showCollectedIconsFn() {
   let count = 0;
 
   for (const record of hiddenItems) {
-    const tempPath = record.tempPath;
-    const desktopPath = record.path;
+    const backupPath = record.backupPath || record.tempPath;
+    const desktopPath = record.originalPath || record.path;
 
-    if (!fs.existsSync(tempPath)) {
-      appLog('WARN', '备份文件不存在，无法恢复:', tempPath);
+    if (!backupPath || !fs.existsSync(backupPath)) {
+      appLog('WARN', '备份文件不存在，无法恢复:', backupPath);
       continue;
     }
 
@@ -624,10 +764,10 @@ function showCollectedIconsFn() {
         continue;
       }
 
-      fs.moveSync(tempPath, desktopPath);
+      fs.moveSync(backupPath, desktopPath);
       count++;
     } catch (e) {
-      appLog('ERROR', '恢复图标失败:', tempPath, e.message);
+      appLog('ERROR', '恢复图标失败:', backupPath, e.message);
     }
   }
 
@@ -663,9 +803,12 @@ ipcMain.handle('open-shortcut', async (_, shortcutPath, targetPath, url) => {
     let effectivePath = shortcutPath;
     if (shortcutPath && !fs.existsSync(shortcutPath)) {
       const config = loadConfig();
-      const hidden = (config.hiddenItems || []).find(h => h.path === shortcutPath);
-      if (hidden && hidden.tempPath && fs.existsSync(hidden.tempPath)) {
-        effectivePath = hidden.tempPath;
+      const hidden = (config.hiddenItems || []).find(h => (h.originalPath || h.path) === shortcutPath);
+      if (hidden) {
+        const backupPath = hidden.backupPath || hidden.tempPath;
+        if (backupPath && fs.existsSync(backupPath)) {
+          effectivePath = backupPath;
+        }
       }
     }
     // 1. 尝试打开快捷方式文件本身
@@ -703,9 +846,12 @@ ipcMain.handle('open-in-explorer', async (_, shortcutPath, targetPath) => {
     let effectivePath = shortcutPath;
     if (shortcutPath && !fs.existsSync(shortcutPath)) {
       const config = loadConfig();
-      const hidden = (config.hiddenItems || []).find(h => h.path === shortcutPath);
-      if (hidden && hidden.tempPath && fs.existsSync(hidden.tempPath)) {
-        effectivePath = hidden.tempPath;
+      const hidden = (config.hiddenItems || []).find(h => (h.originalPath || h.path) === shortcutPath);
+      if (hidden) {
+        const backupPath = hidden.backupPath || hidden.tempPath;
+        if (backupPath && fs.existsSync(backupPath)) {
+          effectivePath = backupPath;
+        }
       }
     }
     // 1. 尝试定位快捷方式文件
@@ -754,6 +900,88 @@ ipcMain.handle('quick-organize', async () => {
   const result = quickOrganize();
   notifyMainWindow('box-updated');
   return result;
+});
+
+// F-06a: 撤销操作
+ipcMain.handle('undo', async () => {
+  const result = undoLastAction();
+  if (result.ok) notifyMainWindow('box-updated');
+  return result;
+});
+
+// F-34: 无效快捷方式检测
+ipcMain.handle('detect-invalid-shortcuts', async () => detectInvalidShortcuts());
+ipcMain.handle('cleanup-invalid-shortcuts', async () => {
+  const result = cleanupInvalidShortcuts();
+  notifyMainWindow('box-updated');
+  return result;
+});
+
+ipcMain.handle('can-undo', async () => {
+  if (!undoStack) return false;
+  return (Date.now() - undoStack.timestamp) <= UNDO_EXPIRY_MS;
+});
+
+// F-29: 配置导出
+ipcMain.handle('export-config', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '导出配置',
+    defaultPath: 'desktop-organizer-config.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (result.canceled || !result.filePath) return { ok: false };
+  try {
+    const config = loadConfig();
+    // 导出时清除 iconData（太大，不含图标数据）
+    const exportData = JSON.parse(JSON.stringify(config));
+    for (const box of exportData.boxes) {
+      for (const item of box.items) item.iconData = null;
+    }
+    for (const item of exportData.unassigned) item.iconData = null;
+    fs.writeJsonSync(result.filePath, exportData, { spaces: 2 });
+    addActivity('system', '配置已导出');
+    return { ok: true, path: result.filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// F-29: 配置导入
+ipcMain.handle('import-config', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '导入配置',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || result.filePaths.length === 0) return { ok: false };
+  try {
+    const importData = fs.readJsonSync(result.filePaths[0]);
+    if (!importData || !Array.isArray(importData.boxes)) {
+      return { ok: false, error: '无效的配置文件' };
+    }
+    const config = loadConfig();
+    // 合并盒子：跳过同名盒子，追加新盒子
+    const existingNames = new Set(config.boxes.map(b => b.name));
+    let imported = 0;
+    for (const box of importData.boxes) {
+      if (existingNames.has(box.name)) continue;
+      // 为导入的盒子生成新 id
+      box.id = 'box_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+      box.onDesktop = false; // 导入的盒子不在桌面显示
+      if (!box.displayMode) box.displayMode = 'panel';
+      if (!box.sortMode) box.sortMode = 'manual';
+      if (!box.sortOrder) box.sortOrder = [];
+      if (!box.createdTime) box.createdTime = Date.now();
+      config.boxes.push(box);
+      imported++;
+    }
+    saveConfig(config);
+    addActivity('system', `导入配置：${imported} 个收纳盒`);
+    notifyMainWindow('box-updated');
+    return { ok: true, imported };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 
 // --- P2: 活动日志 ---
@@ -1024,6 +1252,13 @@ ipcMain.handle('desktop-box:move', async (event, dx, dy) => {
   return true;
 });
 
+// F-16b: 重置浮窗位置
+ipcMain.handle('desktop-box:reset-position', async (event) => {
+  const boxId = findBoxIdByWebContents(event.sender);
+  if (!boxId) return false;
+  return resetDesktopBoxPosition(boxId);
+});
+
 function findBoxIdByWebContents(webContents) {
   for (const [boxId, win] of desktopBoxes) {
     if (!win.isDestroyed() && win.webContents === webContents) return boxId;
@@ -1047,24 +1282,23 @@ if (!gotTheLock) {
     }
   });
 
-  // --- 将 Electron 内部缓存路径重定向到应用安装目录 ---
+  // --- 将所有缓存路径重定向到应用安装目录 ---
   // 避免在 C:\Users\<user>\AppData\Roaming 中产生缓存文件，
   // 使卸载应用时能一并清除所有数据。
-  const appInstallDir = path.dirname(app.getPath('exe'));
+  const PORTABLE_ROOT = path.dirname(app.getPath('exe'));
   try {
-    const portableDataDir = path.join(appInstallDir, 'datas');
-    fs.ensureDirSync(portableDataDir);
-    const testFile = path.join(portableDataDir, '.write-test');
+    fs.ensureDirSync(PORTABLE_ROOT);
+    const testFile = path.join(PORTABLE_ROOT, '.write-test');
     fs.writeFileSync(testFile, '');
     fs.removeSync(testFile);
 
     // 安装目录可写，将 Electron 所有内部路径重定向到此
-    app.setPath('userData', appInstallDir);
-    app.setPath('cache', path.join(appInstallDir, 'cache'));
-    app.setPath('sessionData', path.join(appInstallDir, 'session-data'));
-    app.setPath('crashDumps', path.join(appInstallDir, 'crash-dumps'));
-    app.setPath('logs', path.join(appInstallDir, 'logs'));
-    app.setPath('temp', path.join(appInstallDir, 'temp'));
+    app.setPath('userData', PORTABLE_ROOT);
+    app.setPath('cache', path.join(PORTABLE_ROOT, 'cache'));
+    app.setPath('sessionData', path.join(PORTABLE_ROOT, 'session-data'));
+    app.setPath('crashDumps', path.join(PORTABLE_ROOT, 'crash-dumps'));
+    app.setPath('logs', path.join(PORTABLE_ROOT, 'logs'));
+    app.setPath('temp', path.join(PORTABLE_ROOT, 'temp'));
   } catch (e) {
     // 安装目录不可写（如 Program Files），回退到默认路径
     console.warn('[Path] 安装目录不可写，使用默认路径:', e.message);
@@ -1093,29 +1327,17 @@ function formatRelativeTime(timestamp) {
 }
 
 app.whenReady().then(() => {
-  // 优先使用安装目录（.exe 所在目录）下的 datas 和 icons 文件夹
+  // 使用应用安装目录（.exe 所在目录）下的 datas 和 icons 文件夹
   // 注意：app.whenReady() 之前已通过 app.setPath('userData') 将 userData 重定向到安装目录（如可写）。
-  let INSTALL_DIR = path.dirname(app.getPath('exe'));
-  try {
-    fs.ensureDirSync(path.join(INSTALL_DIR, 'datas'));
-    fs.ensureDirSync(path.join(INSTALL_DIR, 'icons'));
-    // 测试安装目录是否可写
-    const testFile = path.join(INSTALL_DIR, 'datas', '.write-test');
-    fs.writeFileSync(testFile, '');
-    fs.removeSync(testFile);
-  } catch (e) {
-    // 安装目录不可写（如 Program Files），回退到 userData
-    // userData 此时为默认路径 %APPDATA%（因为 path override 已跳过）
-    appLog('WARN', '安装目录不可写，回退到 userData:', e.message);
-    INSTALL_DIR = app.getPath('userData');
-  }
+  const DATA_ROOT = app.getPath('userData');
 
-  DATA_DIR = path.join(INSTALL_DIR, 'datas');
+  DATA_DIR = path.join(DATA_ROOT, 'datas');
   CONFIG_FILE = path.join(DATA_DIR, 'config.json');
   LOG_FILE = path.join(DATA_DIR, 'activity-log.json');
   APP_LOG_FILE = path.join(DATA_DIR, 'app.log');
-  ICON_CACHE_DIR = path.join(INSTALL_DIR, 'icons');
+  ICON_CACHE_DIR = path.join(DATA_ROOT, 'icons');
   BACKUP_DIR = path.join(ICON_CACHE_DIR, 'shortcuts');
+  fs.ensureDirSync(DATA_DIR);
   fs.ensureDirSync(ICON_CACHE_DIR);
   fs.ensureDirSync(BACKUP_DIR);
 

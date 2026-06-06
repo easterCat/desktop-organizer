@@ -192,6 +192,8 @@ function showContextMenu(e, itemPath, itemName) {
     <div class="ctx-item" data-action="explorer">打开文件位置</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item ctx-danger" data-action="remove">移出收纳盒</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="reset-pos">重置位置</div>
   `;
   menu.style.display = 'block';
   menu.style.left = e.clientX + 'px';
@@ -214,6 +216,8 @@ function showContextMenu(e, itemPath, itemName) {
         if (res && !res.ok) console.warn('[box] 定位失败:', res.error);
       } else if (action === 'remove') {
         await window.boxApi.removeItem(itemPath);
+      } else if (action === 'reset-pos') {
+        await window.boxApi.resetPosition();
       }
     });
   });
