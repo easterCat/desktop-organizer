@@ -21,6 +21,9 @@ async function init() {
   bindBoxUpdateListener();
   bindIconUpdateListener();
   bindActivityLogListener();
+  bindConfigCorruptedListener();
+  bindConfigSaveFailedListener();
+  bindPowershellUnavailableListener();
   bindKeyboardShortcuts();
   bindSettingsModal();
   bindActivityLogModal();
@@ -129,7 +132,10 @@ function bindIconUpdateListener() {
     cards.forEach(el => {
       el.classList.remove('loading');
       if (iconData) {
-        el.innerHTML = `<img src="${iconCache[iconPath]}" alt="" />`;
+        const card = el.closest('.shortcut-card');
+        const isUrl = card && card.dataset.url;
+        const fallback = isUrl ? '🌐' : '📄';
+        el.innerHTML = `<img src="${iconCache[iconPath]}" alt="" onerror="this.onerror=null;this.parentElement.textContent='${fallback}'" />`;
       } else {
         // 提取失败，显示 fallback emoji
         const card = el.closest('.shortcut-card');
@@ -218,7 +224,7 @@ function renderUnassigned(filter = '') {
       }
     });
     card.addEventListener('dblclick', () => {
-      if (!batchMode) window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url);
+      if (!batchMode) openShortcutTracked(card.dataset.path, card.dataset.target, card.dataset.url);
     });
     // F-34: 无效快捷方式标记
     if (card.dataset.invalid === 'true') card.classList.add('invalid-shortcut');
@@ -349,7 +355,7 @@ function renderBoxes(filter = '') {
       }
     });
     card.addEventListener('dblclick', () => {
-      if (!batchMode) window.api.openShortcut(card.dataset.path, card.dataset.target, card.dataset.url);
+      if (!batchMode) openShortcutTracked(card.dataset.path, card.dataset.target, card.dataset.url);
     });
     // F-34: 无效快捷方式标记
     if (card.dataset.invalid === 'true') card.classList.add('invalid-shortcut');
@@ -398,6 +404,8 @@ function handleDrop(e) { e.preventDefault(); }
 async function handleDropOnBox(e, boxIndex) {
   if (!dragData) return;
   const { path, source } = dragData;
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('move');
   let item = null;
   if (source === 'unassigned') {
     const idx = config.unassigned.findIndex(i => i.path === path);
@@ -422,6 +430,8 @@ async function handleDropOnUnassigned(e) {
   const { path, source } = dragData;
   // 只处理从收纳盒拖出的情况，未分类之间拖拽无意义
   if (!source.startsWith('box-')) { dragData = null; return; }
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('move');
   const srcBoxIdx = parseInt(source.replace('box-', ''));
   const srcBox = config.boxes[srcBoxIdx];
   const idx = srcBox.items.findIndex(i => i.path === path);
@@ -445,16 +455,22 @@ function toggleBox(idx) {
 
 async function deleteBox(idx) {
   const box = config.boxes[idx];
-  const confirmed = await showConfirm('删除收纳盒', `确定删除收纳盒「${box.name}」吗？\n其中的快捷方式将移回未分类。`);
+  const confirmed = await showConfirm('删除收纳盒', `确定删除收纳盒「${box.name}」吗？\n盒子内的 ${box.items.length} 个快捷方式将回到未分类区。`);
   if (!confirmed) return;
-  // 如果在桌面显示，先关闭桌面窗口
-  if (box.onDesktop) await window.api.closeDesktopBox(box.id);
-  config.unassigned.push(...box.items);
-  config.boxes.splice(idx, 1);
-  await saveConfig();
-  render(document.getElementById('search-input').value);
-  showToast(`已删除收纳盒「${box.name}」`);
-  window.api.logActivity('delete', `删除收纳盒「${box.name}」，${box.items.length} 个图标移回未分类`);
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('delete-box');
+  // F-06: 通过 main process 删除（含隐藏图标恢复）
+  const result = await window.api.deleteBox(idx);
+  if (result && result.ok) {
+    config = await window.api.loadConfig();
+    invalidateRenderCache();
+    render(document.getElementById('search-input').value);
+    let msg = `已删除收纳盒「${box.name}」`;
+    if (result.restored > 0) msg += `，恢复 ${result.restored} 个已隐藏图标`;
+    showToast(msg);
+  } else {
+    showToast('删除失败: ' + (result?.error || '未知错误'));
+  }
 }
 
 function renameBox(idx) {
@@ -541,12 +557,36 @@ async function closeDesktopBox(idx) {
   render(document.getElementById('search-input').value);
 }
 
+// F-30: 切换收纳盒显示模式（面板 ↔ 桌面浮动）
+async function toggleBoxDisplayMode(idx) {
+  const box = config.boxes[idx];
+  if (!box) return;
+  if (box.onDesktop) {
+    // 桌面 → 面板：关闭桌面浮动窗口
+    await closeDesktopBox(idx);
+    box.displayMode = 'panel';
+    await saveConfig();
+    render(document.getElementById('search-input').value);
+    showToast(`「${box.name}」已切换为面板模式`);
+  } else {
+    // 面板 → 桌面：打开桌面浮动窗口
+    await openDesktopBox(idx);
+    box.displayMode = 'desktop';
+    await saveConfig();
+    render(document.getElementById('search-input').value);
+    showToast(`「${box.name}」已切换为桌面模式`);
+  }
+  window.api.logActivity('rename', `「${box.name}」显示模式已切换`);
+}
+
 // --- 右键菜单 ---
 let contextTarget = null;
 
 function bindContextMenu() {
   document.addEventListener('click', () => hideContextMenu());
-  document.addEventListener('contextmenu', (e) => { if (!e.target.closest('.shortcut-card')) hideContextMenu(); });
+  document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('.shortcut-card') && !e.target.closest('.box-header')) hideContextMenu();
+  });
   document.querySelectorAll('#context-menu .ctx-item').forEach(item => {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -572,9 +612,61 @@ function bindContextMenu() {
       const card = e.target.closest('.shortcut-card');
       if (card) {
         showContextMenu(e, card.dataset.path, card.dataset.source);
+        return;
+      }
+      // F-30: 收纳盒标题栏右键 → 排序 + 显示模式菜单
+      const boxHeader = e.target.closest('.box-header');
+      if (boxHeader) {
+        showBoxHeaderMenu(e, parseInt(boxHeader.dataset.boxIndex));
       }
     });
   }
+
+  // F-30: 收纳盒标题栏菜单事件绑定
+  const boxHeaderMenu = document.getElementById('box-header-menu');
+  if (boxHeaderMenu) {
+    boxHeaderMenu.addEventListener('click', (e) => {
+      const sortItem = e.target.closest('[data-sort]');
+      if (sortItem) {
+        const mode = sortItem.dataset.sort;
+        if (boxHeaderMenu._targetBoxIdx != null) {
+          sortBox(boxHeaderMenu._targetBoxIdx, mode);
+        }
+        hideBoxHeaderMenu();
+        return;
+      }
+      const actionItem = e.target.closest('[data-box-action]');
+      if (actionItem) {
+        const action = actionItem.dataset.boxAction;
+        if (action === 'toggle-display' && boxHeaderMenu._targetBoxIdx != null) {
+          toggleBoxDisplayMode(boxHeaderMenu._targetBoxIdx);
+        }
+        hideBoxHeaderMenu();
+      }
+    });
+  }
+}
+
+// F-30: 显示收纳盒标题栏右键菜单
+function showBoxHeaderMenu(e, boxIdx) {
+  e.preventDefault();
+  e.stopPropagation();
+  const box = config.boxes[boxIdx];
+  if (!box) return;
+  const menu = document.getElementById('box-header-menu');
+  menu._targetBoxIdx = boxIdx;
+  menu.style.display = 'block';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  // 高亮当前排序模式
+  menu.querySelectorAll('[data-sort]').forEach(item => {
+    item.classList.toggle('active', item.dataset.sort === (box.sortMode || 'manual'));
+  });
+}
+
+function hideBoxHeaderMenu() {
+  const menu = document.getElementById('box-header-menu');
+  if (menu) menu.style.display = 'none';
 }
 
 function showContextMenu(e, path, source) {
@@ -595,6 +687,7 @@ function showContextMenu(e, path, source) {
 function hideContextMenu() {
   document.getElementById('context-menu').style.display = 'none';
   document.getElementById('move-menu').style.display = 'none';
+  hideBoxHeaderMenu();
   contextTarget = null;
 }
 
@@ -604,7 +697,7 @@ async function handleContextAction(action) {
   switch (action) {
     case 'open': {
       hideContextMenu();
-      const res = await window.api.openShortcut(path, targetPath, url);
+      const res = await openShortcutTracked(path, targetPath, url);
       if (res && !res.ok) showToast('打开失败: ' + (res.error || '未知错误'));
       return;
     }
@@ -638,6 +731,8 @@ function showMoveMenu(path, source) {
 }
 
 async function moveItemToBox(path, source, boxIdx) {
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('move');
   let item = null;
   if (source === 'unassigned') {
     const idx = config.unassigned.findIndex(i => i.path === path);
@@ -658,6 +753,8 @@ async function moveItemToBox(path, source, boxIdx) {
 
 async function removeFromBox(path, source) {
   if (!source.startsWith('box-')) return;
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('move');
   const boxIdx = parseInt(source.replace('box-', ''));
   const idx = config.boxes[boxIdx].items.findIndex(i => i.path === path);
   if (idx >= 0) {
@@ -668,6 +765,20 @@ async function removeFromBox(path, source) {
     showToast(`已将「${item.name}」移回未分类`);
     window.api.logActivity('move', `「${item.name}」从「${config.boxes[boxIdx].name}」移回未分类`);
   }
+}
+
+// --- F-30: 打开快捷方式并记录最近使用时间 ---
+async function openShortcutTracked(path, targetPath, url) {
+  const res = await window.api.openShortcut(path, targetPath, url);
+  // 更新最近使用时间（用于 "最近使用" 排序模式）
+  const now = Date.now();
+  for (const box of config.boxes) {
+    const item = box.items.find(i => i.path === path);
+    if (item) { item.lastUsedTime = now; await saveConfig(); break; }
+  }
+  const unItem = config.unassigned.find(i => i.path === path);
+  if (unItem) { unItem.lastUsedTime = now; await saveConfig(); }
+  return res;
 }
 
 // --- 工具栏 ---
@@ -692,6 +803,7 @@ function bindToolbar() {
   // F-31: 批量操作按钮
   document.getElementById('btn-batch').addEventListener('click', () => toggleBatchMode());
   document.getElementById('btn-batch-move').addEventListener('click', () => batchMoveToBox());
+  document.getElementById('btn-batch-remove').addEventListener('click', () => batchRemoveFromBox());
   document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleBatchMode());
 }
 
@@ -756,6 +868,9 @@ function bindModal() {
       items: [],
       collapsed: false,
       onDesktop: selectedMode === 'desktop',
+      displayMode: selectedMode,
+      sortMode: 'manual',
+      sortOrder: [],
       desktopPos: { x: 100 + (config.boxes.length * 30) % 300, y: 100 + (config.boxes.length * 30) % 200 },
       desktopSize: { width: 260, height: 320 },
       createdTime: Date.now()
@@ -890,12 +1005,14 @@ async function quickOrganize() {
 
   render(document.getElementById('search-input').value);
 
+  const boxCount = config.boxes.length;
+  const skipped = result.skipped || 0;
   if (result.moved > 0 && organizeCandidates.length > 0) {
-    showToast(`快速整理完成，自动归类 ${result.moved} 个快捷方式，${organizeCandidates.length} 个待确认`);
+    showToast(`快速整理完成：已归类 ${result.moved} 个项目到 ${boxCount} 个盒子，${organizeCandidates.length} 个待确认` + (skipped > 0 ? `，跳过 ${skipped} 个模糊匹配项` : ''));
   } else if (result.moved > 0) {
-    showToast(`快速整理完成，自动归类 ${result.moved} 个快捷方式`);
+    showToast(`快速整理完成：已归类 ${result.moved} 个项目到 ${boxCount} 个盒子` + (skipped > 0 ? `，跳过 ${skipped} 个模糊匹配项` : ''));
   } else if (organizeCandidates.length > 0) {
-    showToast(`${organizeCandidates.length} 个候选项待确认`);
+    showToast(`${organizeCandidates.length} 个候选项待确认` + (skipped > 0 ? `，跳过 ${skipped} 个模糊匹配项` : ''));
   } else {
     showToast('没有可自动归类的快捷方式');
   }
@@ -982,6 +1099,15 @@ function updateBatchCount() {
   if (countEl) countEl.textContent = `已选 ${selectedItems.size} 项`;
   const moveBtn = document.getElementById('btn-batch-move');
   if (moveBtn) moveBtn.disabled = selectedItems.size === 0;
+  // 检查选中项是否有来自盒子的（有则启用移出按钮）
+  const hasBoxItems = [...selectedItems].some(p => {
+    for (const box of config.boxes) {
+      if (box.items.find(i => i.path === p)) return true;
+    }
+    return false;
+  });
+  const removeBtn = document.getElementById('btn-batch-remove');
+  if (removeBtn) removeBtn.disabled = selectedItems.size === 0 || !hasBoxItems;
 }
 
 function toggleItemSelection(path) {
@@ -1020,6 +1146,8 @@ async function batchMoveToBox() {
 
     const boxIdx = parseInt(option.dataset.batchMoveTo);
     const targetBox = config.boxes[boxIdx];
+    // F-06a: 保存撤销快照
+    await window.api.saveUndoSnapshot('move');
     let moved = 0;
     for (const path of selectedItems) {
       const idx = config.unassigned.findIndex(i => i.path === path);
@@ -1058,10 +1186,40 @@ async function batchMoveToBox() {
   setTimeout(() => document.addEventListener('click', handleOutside), 0);
 }
 
+// F-31: 批量从盒子移出到未分类
+async function batchRemoveFromBox() {
+  if (selectedItems.size === 0) return;
+  // F-06a: 保存撤销快照
+  await window.api.saveUndoSnapshot('move');
+  let removed = 0;
+  for (const path of selectedItems) {
+    for (const box of config.boxes) {
+      const idx = box.items.findIndex(i => i.path === path);
+      if (idx >= 0) {
+        const item = box.items.splice(idx, 1)[0];
+        config.unassigned.push(item);
+        removed++;
+        break;
+      }
+    }
+  }
+  if (removed > 0) {
+    await saveConfig();
+    toggleBatchMode();
+    render(document.getElementById('search-input').value);
+    showToast(`批量移出 ${removed} 个图标到未分类`);
+    window.api.logActivity('move', `批量移出 ${removed} 个图标到未分类`);
+  }
+}
+
 // --- F-30: 排序功能 ---
 async function sortBox(boxIdx, mode) {
   const box = config.boxes[boxIdx];
   if (!box) return;
+  // 切换到非手动排序前，保存当前顺序作为 sortOrder（用于恢复手动排序）
+  if (box.sortMode === 'manual' && mode !== 'manual') {
+    box.sortOrder = box.items.map(item => item.path);
+  }
   box.sortMode = mode;
   switch (mode) {
     case 'alpha':
@@ -1071,15 +1229,21 @@ async function sortBox(boxIdx, mode) {
       box.items.sort((a, b) => (a.createdTime || 0) - (b.createdTime || 0));
       break;
     case 'recent':
-      // 按最近使用排序（基于 targetPath 的修改时间，简化为名称倒序）
-      box.items.sort((a, b) => b.name.localeCompare(a.name, 'zh-CN'));
+      // 按最近使用时间排序（记录最近打开时间，新打开的排在前面）
+      box.items.sort((a, b) => (b.lastUsedTime || 0) - (a.lastUsedTime || 0));
       break;
     case 'manual':
     default:
+      // 恢复 sortOrder 中保存的顺序
+      if (box.sortOrder && box.sortOrder.length > 0) {
+        const pathOrder = new Map(box.sortOrder.map((path, i) => [path, i]));
+        box.items.sort((a, b) => (pathOrder.get(a.path) ?? Infinity) - (pathOrder.get(b.path) ?? Infinity));
+      }
       break;
   }
   await saveConfig();
   render(document.getElementById('search-input').value);
+  showToast(`已切换为${mode === 'alpha' ? '字母序' : mode === 'createTime' ? '创建时间' : mode === 'recent' ? '最近使用' : '手动'}排序`);
 }
 
 // --- P2: 设置面板 (D03) ---
@@ -1095,6 +1259,12 @@ function bindSettingsModal() {
     // 填充当前设置
     const desktopPath = await window.api.getDesktopPath();
     pathInput.value = desktopPath;
+
+    // 填充应用版本号
+    try {
+      const version = await window.api.getAppVersion();
+      document.getElementById('info-version').textContent = version;
+    } catch (e) {}
 
     // 填充统计信息
     const totalItems = config.boxes.reduce((sum, b) => sum + b.items.length, 0) + config.unassigned.length;
@@ -1144,6 +1314,18 @@ function bindSettingsModal() {
         document.getElementById('info-hidden-count').textContent = status.hiddenCount || 0;
         if (newHide) {
           showToast(`已隐藏 ${result.count} 个桌面图标`);
+          // F-19: 公共桌面权限不足时提示用户提权
+          if (result.permissionErrors && result.permissionErrors.length > 0) {
+            const needsAdmin = await showConfirm(
+              '需要管理员权限',
+              `${result.permissionErrors.length} 个公共桌面图标因权限不足无法隐藏。\n是否以管理员身份重启应用？`
+            );
+            if (needsAdmin) {
+              await window.api.restartAsAdmin();
+            } else {
+              showToast('公共桌面操作已跳过');
+            }
+          }
         } else {
           showToast(`已恢复 ${result.count} 个桌面图标`);
         }
@@ -1242,6 +1424,7 @@ function bindActivityLogModal() {
   const closeBtn = document.getElementById('modal-log-close');
   const closeBtn2 = document.getElementById('modal-log-close-btn');
   const clearBtn = document.getElementById('btn-clear-log');
+  const exportBtn = document.getElementById('btn-export-log');
 
   document.getElementById('btn-activity-log').addEventListener('click', async () => {
     await renderActivityLog();
@@ -1259,6 +1442,18 @@ function bindActivityLogModal() {
     renderActivityLogEmpty();
     showToast('日志已清空');
   });
+
+  // F-21: 导出活动日志
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const result = await window.api.exportActivityLog();
+      if (result && result.ok) {
+        showToast('活动日志已导出');
+      } else if (result && result.error) {
+        showToast('导出失败: ' + result.error);
+      }
+    });
+  }
 }
 
 async function renderActivityLog() {
@@ -1308,6 +1503,46 @@ function bindActivityLogListener() {
     if (modal.style.display === 'flex') {
       renderActivityLog();
     }
+  });
+}
+
+// §12.2: 配置损坏通知（PRD §12.2: Toast 中的'从备份恢复'为可点击链接）
+function bindConfigCorruptedListener() {
+  window.api.onConfigCorrupted(({ backupPath }) => {
+    if (backupPath) {
+      showToast(`⚠️ 配置文件已损坏，已重置。点击<a href="#" onclick="restoreFromBackup('${backupPath.replace(/\\/g, '\\\\')}')" style="color:#6cb4ee;text-decoration:underline;">从备份恢复</a>`);
+    } else {
+      showToast('⚠️ 配置文件已损坏，已重置为默认配置');
+    }
+  });
+}
+
+// PRD §12.2: 从 .bak 文件恢复配置
+window.restoreFromBackup = async function(backupPath) {
+  if (!backupPath) return;
+  try {
+    const result = await window.api.restoreFromBackup(backupPath);
+    if (result.ok) {
+      showToast('正在从备份恢复并重启...');
+    } else {
+      showToast('恢复失败: ' + (result.error || '未知错误'));
+    }
+  } catch (e) {
+    showToast('恢复失败: ' + e.message);
+  }
+};
+
+// PRD §12.2: 配置保存失败通知
+function bindConfigSaveFailedListener() {
+  window.api.onConfigSaveFailed(({ error }) => {
+    showToast(`⚠️ 配置保存失败，请检查是否有其他程序占用: ${error || '未知错误'}`);
+  });
+}
+
+// PRD §12.3: PowerShell 不可用通知
+function bindPowershellUnavailableListener() {
+  window.api.onPowershellUnavailable(() => {
+    showToast('⚠️ 此应用需要 PowerShell 支持，请联系系统管理员', 8000);
   });
 }
 

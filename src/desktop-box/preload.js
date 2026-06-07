@@ -20,14 +20,6 @@ contextBridge.exposeInMainWorld('boxApi', {
     ipcRenderer.on('desktop-box:data-updated', handler);
     return () => ipcRenderer.removeListener('desktop-box:data-updated', handler);
   },
-  // 监听拖入的文件路径（从系统拖入，返回清理函数）
-  onFileDrop: (cb) => {
-    const handler = (_, paths) => cb(paths);
-    ipcRenderer.on('desktop-box:file-drop', handler);
-    return () => ipcRenderer.removeListener('desktop-box:file-drop', handler);
-  },
-  // 窗口移动
-  windowMove: (dx, dy) => ipcRenderer.invoke('desktop-box:move', dx, dy),
   // F-16b: 重置位置
   resetPosition: () => ipcRenderer.invoke('desktop-box:reset-position'),
 });

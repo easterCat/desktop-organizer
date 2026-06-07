@@ -11,11 +11,14 @@ function escapeAttr(str) {
 }
 
 function getIconHtmlFromUtils(item, iconCache) {
-  if (iconCache[item.path]) return `<img src="${iconCache[item.path]}" alt="${item.name}" />`;
-  if (item.iconData) return `<img src="data:image/png;base64,${item.iconData}" alt="${item.name}" />`;
+  // PRD §12.3: PowerShell 解析失败时显示灰色占位符
+  if (item.parseFailed) return '<span style="display:inline-block;width:32px;height:32px;border-radius:6px;background:rgba(255,255,255,0.08);opacity:0.4;" title="解析失败"></span>';
+  const fallback = item.type === 'url' ? '🌐' : '📄';
+  const onerror = `this.onerror=null;this.parentElement.textContent='${fallback}'`;
+  if (iconCache[item.path]) return `<img src="${iconCache[item.path]}" alt="${item.name}" onerror="${onerror}" />`;
+  if (item.iconData) return `<img src="data:image/png;base64,${item.iconData}" alt="${item.name}" onerror="${onerror}" />`;
   // iconPath 存在但图标尚未加载时，显示 fallback emoji 而非空字符串（避免永久转圈）
-  if (item.type === 'url') return '🌐';
-  return '📄';
+  return fallback;
 }
 
 function formatBytes(bytes) {

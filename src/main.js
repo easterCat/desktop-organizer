@@ -1282,27 +1282,29 @@ if (!gotTheLock) {
     }
   });
 
-  // --- 将所有缓存路径重定向到应用安装目录 ---
-  // 避免在 C:\Users\<user>\AppData\Roaming 中产生缓存文件，
-  // 使卸载应用时能一并清除所有数据。
-  const PORTABLE_ROOT = path.dirname(app.getPath('exe'));
-  try {
-    fs.ensureDirSync(PORTABLE_ROOT);
-    const testFile = path.join(PORTABLE_ROOT, '.write-test');
-    fs.writeFileSync(testFile, '');
-    fs.removeSync(testFile);
+  // --- 路径配置：确保开发环境与安装包使用统一的数据存储路径 ---
+  // PRD F-26: 所有数据存储在系统 Roaming 目录（AppData\Roaming\desktop-organizer\）
+  if (app.isPackaged) {
+    // 生产环境：尝试将缓存路径重定向到安装目录，使卸载时能一并清除
+    const PORTABLE_ROOT = path.dirname(app.getPath('exe'));
+    try {
+      fs.ensureDirSync(PORTABLE_ROOT);
+      const testFile = path.join(PORTABLE_ROOT, '.write-test');
+      fs.writeFileSync(testFile, '');
+      fs.removeSync(testFile);
 
-    // 安装目录可写，将 Electron 所有内部路径重定向到此
-    app.setPath('userData', PORTABLE_ROOT);
-    app.setPath('cache', path.join(PORTABLE_ROOT, 'cache'));
-    app.setPath('sessionData', path.join(PORTABLE_ROOT, 'session-data'));
-    app.setPath('crashDumps', path.join(PORTABLE_ROOT, 'crash-dumps'));
-    app.setPath('logs', path.join(PORTABLE_ROOT, 'logs'));
-    app.setPath('temp', path.join(PORTABLE_ROOT, 'temp'));
-  } catch (e) {
-    // 安装目录不可写（如 Program Files），回退到默认路径
-    console.warn('[Path] 安装目录不可写，使用默认路径:', e.message);
+      app.setPath('userData', PORTABLE_ROOT);
+      app.setPath('cache', path.join(PORTABLE_ROOT, 'cache'));
+      app.setPath('sessionData', path.join(PORTABLE_ROOT, 'session-data'));
+      app.setPath('crashDumps', path.join(PORTABLE_ROOT, 'crash-dumps'));
+      app.setPath('logs', path.join(PORTABLE_ROOT, 'logs'));
+      app.setPath('temp', path.join(PORTABLE_ROOT, 'temp'));
+    } catch (e) {
+      console.warn('[Path] 安装目录不可写，使用默认路径:', e.message);
+    }
   }
+  // 开发环境：不重定向，使用 Electron 默认 userData 路径
+  // 即 AppData\Roaming\desktop-organizer\，与 PRD 8.5 节定义一致
 
   startApp();
 }

@@ -86,11 +86,12 @@ function renderItems() {
 }
 
 function getIconHtml(item) {
+  const fallback = item.type === 'url' ? '🌐' : '📄';
+  const onerror = `this.onerror=null;this.parentElement.textContent='${fallback}'`;
   if (item.iconData) {
-    return `<img src="data:image/png;base64,${item.iconData}" alt="${escapeAttr(item.name)}" />`;
+    return `<img src="data:image/png;base64,${item.iconData}" alt="${escapeAttr(item.name)}" onerror="${onerror}" />`;
   }
-  if (item.type === 'url') return '🌐';
-  return '📄';
+  return fallback;
 }
 
 function bindEvents() {

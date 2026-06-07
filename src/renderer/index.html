@@ -44,7 +44,8 @@
   <!-- F-31: 批量操作栏 -->
   <div class="batch-bar" id="batch-bar" style="display:none;">
     <span class="batch-info" id="batch-count">已选 0 项</span>
-    <button type="button" class="btn-icon-only" id="btn-batch-move" title="批量移入第一个收纳盒" disabled>📥 移入</button>
+    <button type="button" class="btn-icon-only" id="btn-batch-move" title="批量移入收纳盒" disabled>📥 移入</button>
+    <button type="button" class="btn-icon-only" id="btn-batch-remove" title="批量从盒子移出到未分类" disabled>📤 移出</button>
     <button type="button" class="btn-icon-only" id="btn-batch-cancel" title="取消批量模式">✕</button>
   </div>
 
@@ -141,6 +142,17 @@
   </div>
   <div class="ctx-menu" id="move-menu" style="display:none;"></div>
 
+  <!-- F-30: 收纳盒标题栏右键菜单（排序 + 显示模式切换） -->
+  <div class="ctx-menu" id="box-header-menu" style="display:none;">
+    <div class="ctx-group-label">排序方式</div>
+    <div class="ctx-item" data-sort="manual">📋 手动排序</div>
+    <div class="ctx-item" data-sort="alpha">🔤 字母序</div>
+    <div class="ctx-item" data-sort="createTime">🕐 创建时间</div>
+    <div class="ctx-item" data-sort="recent">📅 最近使用</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-box-action="toggle-display">🖥️ 切换显示模式</div>
+  </div>
+
   <!-- P2: 设置面板 -->
   <div class="modal-overlay" id="modal-settings" style="display:none;">
     <div class="modal" style="width:420px;">
@@ -226,6 +238,7 @@
         </div>
       </div>
       <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="btn-export-log">导出日志</button>
         <button type="button" class="btn-ghost" id="btn-clear-log">清空日志</button>
         <button type="button" class="btn-ghost" id="modal-log-close-btn">关闭</button>
       </div>

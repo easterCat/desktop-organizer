@@ -12,7 +12,7 @@
   --g-border: rgba(255,255,255,0.09);
   --g-hi: rgba(255,255,255,0.18);
   --text: rgba(255,255,255,0.88);
-  --text2: rgba(255,255,255,0.42);
+  --text2: rgba(255,255,255,0.50);
   --text3: rgba(255,255,255,0.22);
   --accent: rgba(255,255,255,0.75);
   --red: #e05555;
@@ -48,6 +48,7 @@ body {
   -webkit-app-region: drag;
   border-bottom: 1px solid var(--g-border);
   background: rgba(14,14,17,0.4);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 
@@ -124,6 +125,7 @@ body {
   padding: 8px 14px;
   border-bottom: 1px solid var(--g-border);
   background: rgba(14,14,17,0.25);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
 
@@ -138,6 +140,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   letter-spacing: 0.3px;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   transition: all 0.2s;
   font-family: inherit;
@@ -215,6 +218,7 @@ body {
 .main-content::-webkit-scrollbar { width: 4px; }
 .main-content::-webkit-scrollbar-track { background: transparent; }
 .main-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+.main-content::-webkit-scrollbar-thumb:hover { width: 6px; background: rgba(255,255,255,0.2); }
 
 /* --- 未分类 --- */
 .unassigned-section {
@@ -223,6 +227,7 @@ body {
   background: var(--g1);
   border: 1px solid var(--g-border);
   border-radius: var(--r);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
 
@@ -327,6 +332,7 @@ body {
   border: 1px solid var(--g-border);
   border-radius: var(--r);
   overflow: hidden;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   transition: border-color 0.2s, box-shadow 0.2s;
   animation: fadeIn 0.2s ease-out;
@@ -456,6 +462,7 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -466,6 +473,7 @@ body {
 .modal {
   width: 380px;
   background: rgba(28,28,32,0.85);
+  -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   border: 1px solid var(--g3);
   border-radius: var(--r);
@@ -626,6 +634,7 @@ body {
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .btn-solid:hover {
@@ -636,6 +645,7 @@ body {
 .ctx-menu {
   position: fixed;
   background: rgba(24,24,28,0.88);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border: 1px solid var(--g3);
   border-radius: var(--rs);
@@ -656,6 +666,8 @@ body {
 .ctx-danger { color: var(--red); }
 .ctx-danger:hover { background: rgba(224,85,85,0.12); }
 .ctx-sep { height: 1px; background: var(--g-border); margin: 3px 0; }
+.ctx-group-label { padding: 4px 16px 2px; font-size: 10px; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; cursor: default; }
+.ctx-item.active { color: var(--accent); font-weight: 600; }
 
 /* --- 空状态 --- */
 .empty-state {
@@ -673,6 +685,7 @@ body {
   left: 50%;
   transform: translateX(-50%) translateY(40px);
   background: rgba(28,28,32,0.85);
+  -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   color: var(--text2);
   padding: 8px 22px;
@@ -713,6 +726,7 @@ body {
   padding: 0 14px;
   border-top: 1px solid var(--g-border);
   background: rgba(14,14,17,0.6);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   flex-shrink: 0;
 }
@@ -954,6 +968,7 @@ body {
   padding: 6px 14px;
   border-bottom: 1px solid var(--g-border);
   background: rgba(62, 218, 170, 0.08);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
 

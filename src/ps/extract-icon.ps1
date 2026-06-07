@@ -41,27 +41,75 @@ if ($ext -eq '.ico') {
         }
     } catch {}
 } else {
-    # 其他文件类型（.lnk, .cmd, .bat 等）：先尝试 ExtractAssociatedIcon
+    # 其他文件类型（.lnk, .cmd, .bat 等）
+    # 对 .lnk 文件：先通过 WScript.Shell COM 解析快捷方式获取目标路径，
+    # 再从目标可执行文件提取图标，这比直接对 .lnk 调用 ExtractAssociatedIcon 更可靠
     $gotIcon = $false
-    try {
-        $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($Arg)
-        if ($icon) {
-            $bmp = $icon.ToBitmap()
-            $ms = New-Object System.IO.MemoryStream
-            $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-            [Convert]::ToBase64String($ms.ToArray())
-            $ms.Dispose()
-            $bmp.Dispose()
-            $icon.Dispose()
-            $gotIcon = $true
-        }
-    } catch {}
 
-    # 提取失败时，使用 SHGetFileInfo 获取 Windows Shell 图标
-    # 对 .lnk/.cmd/.bat 等无内嵌图标的文件类型有效
+    if ($ext -eq '.lnk') {
+        try {
+            $wsh = New-Object -ComObject WScript.Shell
+            $lnk = $wsh.CreateShortcut($Arg)
+            $targetPath = $lnk.TargetPath
+            $iconLocation = $lnk.IconLocation
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($lnk) | Out-Null
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) | Out-Null
+
+            # 优先从 IconLocation 指定的路径提取
+            $extractPath = $null
+            if ($iconLocation -and $iconLocation.Trim() -ne '') {
+                $parts = $iconLocation.Split(',')
+                $p = $parts[0].Trim()
+                if ($p -ne '' -and (Test-Path $p)) { $extractPath = $p }
+            }
+            # 回退到目标路径
+            if (-not $extractPath -and $targetPath -and (Test-Path $targetPath)) {
+                $extractPath = $targetPath
+            }
+
+            if ($extractPath) {
+                $pExt = [System.IO.Path]::GetExtension($extractPath).ToLower()
+                if ($pExt -eq '.ico') {
+                    $icon = New-Object System.Drawing.Icon($extractPath)
+                    $bmp = $icon.ToBitmap()
+                    $ms = New-Object System.IO.MemoryStream
+                    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                    [Convert]::ToBase64String($ms.ToArray())
+                    $ms.Dispose(); $bmp.Dispose(); $icon.Dispose()
+                    $gotIcon = $true
+                } else {
+                    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($extractPath)
+                    if ($icon) {
+                        $bmp = $icon.ToBitmap()
+                        $ms = New-Object System.IO.MemoryStream
+                        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                        [Convert]::ToBase64String($ms.ToArray())
+                        $ms.Dispose(); $bmp.Dispose(); $icon.Dispose()
+                        $gotIcon = $true
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    # 非 .lnk 文件或 .lnk 解析失败时，回退到原有逻辑
     if (-not $gotIcon) {
         try {
-            # 使用字符串拼接代替 here-string，避免 UTF-8 无 BOM 时 PowerShell 解析失败
+            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($Arg)
+            if ($icon) {
+                $bmp = $icon.ToBitmap()
+                $ms = New-Object System.IO.MemoryStream
+                $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                [Convert]::ToBase64String($ms.ToArray())
+                $ms.Dispose(); $bmp.Dispose(); $icon.Dispose()
+                $gotIcon = $true
+            }
+        } catch {}
+    }
+
+    # 最终回退：使用 SHGetFileInfo 获取 Windows Shell 图标
+    if (-not $gotIcon) {
+        try {
             $csLines = @(
                 'using System;'
                 'using System.Runtime.InteropServices;'
@@ -98,9 +146,7 @@ if ($ext -eq '.ico') {
                 $ms = New-Object System.IO.MemoryStream
                 $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
                 [Convert]::ToBase64String($ms.ToArray())
-                $ms.Dispose()
-                $bmp.Dispose()
-                $clone.Dispose()
+                $ms.Dispose(); $bmp.Dispose(); $clone.Dispose()
             }
         } catch {}
     }

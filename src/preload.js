@@ -49,13 +49,42 @@ contextBridge.exposeInMainWorld('api', {
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
   // 重置缓存
   resetCaches: () => ipcRenderer.invoke('reset-caches'),
+  // F-06: 删除收纳盒（含隐藏图标恢复）
+  deleteBox: (boxIdx) => ipcRenderer.invoke('delete-box', boxIdx),
   // F-06a: 撤销操作
   undo: () => ipcRenderer.invoke('undo'),
   canUndo: () => ipcRenderer.invoke('can-undo'),
+  saveUndoSnapshot: (type) => ipcRenderer.invoke('save-undo-snapshot', type),
+  // F-19: 以管理员身份重启
+  restartAsAdmin: () => ipcRenderer.invoke('restart-as-admin'),
+  // PRD §12.2: 从备份恢复配置并重启
+  restoreFromBackup: (backupPath) => ipcRenderer.invoke('restore-from-backup', backupPath),
+  // 配置损坏通知
+  onConfigCorrupted: (cb) => {
+    const handler = (_event, data) => cb(data);
+    ipcRenderer.on('config-corrupted', handler);
+    return () => ipcRenderer.removeListener('config-corrupted', handler);
+  },
+  // PRD §12.2: 配置保存失败通知
+  onConfigSaveFailed: (cb) => {
+    const handler = (_event, data) => cb(data);
+    ipcRenderer.on('config-save-failed', handler);
+    return () => ipcRenderer.removeListener('config-save-failed', handler);
+  },
   // F-29: 配置导入/导出
   exportConfig: () => ipcRenderer.invoke('export-config'),
   importConfig: () => ipcRenderer.invoke('import-config'),
   // F-34: 无效快捷方式检测
   detectInvalidShortcuts: () => ipcRenderer.invoke('detect-invalid-shortcuts'),
   cleanupInvalidShortcuts: () => ipcRenderer.invoke('cleanup-invalid-shortcuts'),
+  // PRD §12.3: PowerShell 不可用通知
+  onPowershellUnavailable: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('powershell-unavailable', handler);
+    return () => ipcRenderer.removeListener('powershell-unavailable', handler);
+  },
+  // F-21: 活动日志导出
+  exportActivityLog: () => ipcRenderer.invoke('export-activity-log'),
+  // 应用版本号
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 });
