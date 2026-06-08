@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-06-07
+
+### Fixed
+
+- **Production Icon Extraction (PERF-02)** — PowerShell icon/lnk scripts were packed inside `app.asar` and inaccessible to external processes; added `asarUnpack` for `src/ps/**` and fixed `runPSScript` to resolve unpacked paths at runtime
+
+## [1.5.1] - 2026-06-07
+
+### Changed
+
+- **Unified Storage Path (F-26)** — Storage paths now dynamically resolve based on the application install directory; development and production builds use identical path logic
+- **Desktop Box Z-Order** — Desktop floating widgets no longer use `alwaysOnTop`, reducing overlay conflicts with other windows
+
 ## [1.5.0] - 2026-06-07
 
 ### Changed

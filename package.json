@@ -1,6 +1,6 @@
 {
   "name": "desktop-organizer",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "description": "Windows桌面图标收纳盒 - 归类整理桌面快捷方式",
   "main": "src/main.js",
   "scripts": {
@@ -39,6 +39,9 @@
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "src/ps/**"
     ]
   }
 }

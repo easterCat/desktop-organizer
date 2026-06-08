@@ -364,13 +364,22 @@ function renderBoxes(filter = '') {
   container.querySelectorAll('.box-content').forEach(zone => {
     zone.addEventListener('dragover', handleDragOver);
     zone.addEventListener('dragleave', handleDragLeave);
-    zone.addEventListener('drop', handleDrop);
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const boxSection = zone.closest('.box-section');
+      if (boxSection) {
+        boxSection.classList.remove('drag-target');
+        handleDropOnBox(e, parseInt(boxSection.dataset.boxIndex));
+      }
+    });
   });
 
   container.querySelectorAll('.box-section').forEach(section => {
-    section.addEventListener('dragover', (e) => { e.preventDefault(); section.classList.add('drag-target'); });
+    section.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; section.classList.add('drag-target'); });
     section.addEventListener('dragleave', (e) => { if (!section.contains(e.relatedTarget)) section.classList.remove('drag-target'); });
     section.addEventListener('drop', (e) => {
+      e.preventDefault();
       section.classList.remove('drag-target');
       handleDropOnBox(e, parseInt(section.dataset.boxIndex));
     });

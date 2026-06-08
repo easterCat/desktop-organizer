@@ -8,6 +8,9 @@ const { execFileSync, execFile } = require('child_process');
 let DATA_DIR, CONFIG_FILE, LOG_FILE, APP_LOG_FILE, BACKUP_DIR;
 let mainWindow;
 
+// 生产环境下 PowerShell 可执行文件的完整路径（启动时检测）
+let POWERSHELL_PATH = 'powershell';
+
 // 应用日志系统 (CODE-02)
 function appLog(level, ...args) {
   const timestamp = new Date().toISOString();
@@ -367,11 +370,41 @@ function setCachedIcon(iconPath, base64) {
 // --- PowerShell ---
 function runPSScript(scriptName, args = []) {
   const scriptPath = path.join(PS_DIR, scriptName);
-  const psArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
+  const resolvedPath = scriptPath.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep);
+
+  // 检查脚本文件是否存在（生产环境下 asar 解包路径验证）
+  if (!fs.existsSync(resolvedPath)) {
+    appLog('ERROR', `[PS] 脚本文件不存在: ${resolvedPath}`);
+    return '';
+  }
+
+  const psArgs = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolvedPath];
   for (const a of args) psArgs.push('-Arg', a);
   try {
-    return execFileSync('powershell', psArgs, { encoding: 'utf-8', timeout: 10000 }).trim();
-  } catch (e) { return ''; }
+    const result = execFileSync(POWERSHELL_PATH, psArgs, { encoding: 'utf-8', timeout: 15000 });
+    return result.trim();
+  } catch (e) {
+    const errMsg = e.stderr ? e.stderr.toString().trim() : e.message;
+    appLog('ERROR', `[PS] ${scriptName} 执行失败:`, errMsg, '| 脚本路径:', resolvedPath);
+    return '';
+  }
+}
+
+// 启动时检测 PowerShell 可用性并定位完整路径
+function detectPowerShell() {
+  try {
+    const sysRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+    const fullPath = path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    if (fs.existsSync(fullPath)) {
+      POWERSHELL_PATH = fullPath;
+    }
+    execFileSync(POWERSHELL_PATH, ['-NoProfile', '-NonInteractive', '-Command', 'echo ok'], { encoding: 'utf-8', timeout: 5000 });
+    appLog('INFO', `[PS] PowerShell 可用: ${POWERSHELL_PATH}`);
+    return true;
+  } catch (e) {
+    appLog('ERROR', '[PS] PowerShell 不可用:', e.message);
+    return false;
+  }
 }
 
 // --- 图标提取 ---
@@ -599,7 +632,7 @@ function createDesktopBox(boxId) {
     frame: false,
     transparent: true,
     resizable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     skipTaskbar: true,
     hasShadow: false,
     icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
@@ -900,6 +933,57 @@ ipcMain.handle('quick-organize', async () => {
   const result = quickOrganize();
   notifyMainWindow('box-updated');
   return result;
+});
+
+// F-06a: 撤销快照
+ipcMain.handle('save-undo-snapshot', async () => {
+  const config = loadConfig();
+  saveUndoSnapshot(config);
+  return true;
+});
+
+// F-06: 删除收纳盒（含隐藏图标恢复）
+ipcMain.handle('delete-box', async (_, boxIdx) => {
+  const config = loadConfig();
+  const box = config.boxes[boxIdx];
+  if (!box) return { ok: false, error: '收纳盒不存在' };
+
+  // 将盒子内的 items 移回未分类
+  for (const item of box.items) {
+    config.unassigned.push(item);
+  }
+
+  // 恢复该盒子中被隐藏的图标
+  let restored = 0;
+  const boxItemPaths = new Set(box.items.map(i => i.path));
+  const remainingHidden = [];
+  for (const record of (config.hiddenItems || [])) {
+    const origPath = record.originalPath || record.path;
+    if (boxItemPaths.has(origPath)) {
+      // 该图标属于被删除的盒子，恢复到桌面
+      const backupPath = record.backupPath || record.tempPath;
+      if (backupPath && fs.existsSync(backupPath)) {
+        try {
+          fs.moveSync(backupPath, origPath);
+          restored++;
+        } catch (e) {
+          appLog('ERROR', '恢复隐藏图标失败:', origPath, e.message);
+          remainingHidden.push(record); // 恢复失败则保留记录
+        }
+      }
+    } else {
+      remainingHidden.push(record);
+    }
+  }
+  config.hiddenItems = remainingHidden;
+
+  // 删除收纳盒
+  config.boxes.splice(boxIdx, 1);
+  saveConfig(config);
+  notifyMainWindow('box-updated');
+  notifyAllDesktopBoxes();
+  addActivity('delete', `删除收纳盒「${box.name}」，${box.items.length} 个快捷方式回到未分类`);
+  return { ok: true, restored };
 });
 
 // F-06a: 撤销操作
@@ -1282,29 +1366,34 @@ if (!gotTheLock) {
     }
   });
 
-  // --- 路径配置：确保开发环境与安装包使用统一的数据存储路径 ---
-  // PRD F-26: 所有数据存储在系统 Roaming 目录（AppData\Roaming\desktop-organizer\）
-  if (app.isPackaged) {
-    // 生产环境：尝试将缓存路径重定向到安装目录，使卸载时能一并清除
-    const PORTABLE_ROOT = path.dirname(app.getPath('exe'));
-    try {
-      fs.ensureDirSync(PORTABLE_ROOT);
-      const testFile = path.join(PORTABLE_ROOT, '.write-test');
-      fs.writeFileSync(testFile, '');
-      fs.removeSync(testFile);
+  // --- 路径配置：基于应用安装路径动态确定存储目录 ---
+  // PRD F-26 & 8.5: 所有数据存储在应用安装目录下（datas/、icons/ 等），
+  // 路径随安装位置动态变化，例如：
+  //   - 安装在 C:\Program Files\desktop-organizer\ → 数据在 C:\Program Files\desktop-organizer\datas\
+  //   - 安装在 D:\Apps\desktop-organizer\ → 数据在 D:\Apps\desktop-organizer\datas\
+  const APP_ROOT = app.isPackaged
+    ? path.dirname(app.getPath('exe'))  // 生产环境：使用 .exe 所在目录
+    : path.join(__dirname, '..');       // 开发环境：使用项目根目录
+  try {
+    fs.ensureDirSync(APP_ROOT);
+    const testFile = path.join(APP_ROOT, '.write-test');
+    fs.writeFileSync(testFile, '');
+    fs.removeSync(testFile);
 
-      app.setPath('userData', PORTABLE_ROOT);
-      app.setPath('cache', path.join(PORTABLE_ROOT, 'cache'));
-      app.setPath('sessionData', path.join(PORTABLE_ROOT, 'session-data'));
-      app.setPath('crashDumps', path.join(PORTABLE_ROOT, 'crash-dumps'));
-      app.setPath('logs', path.join(PORTABLE_ROOT, 'logs'));
-      app.setPath('temp', path.join(PORTABLE_ROOT, 'temp'));
-    } catch (e) {
-      console.warn('[Path] 安装目录不可写，使用默认路径:', e.message);
-    }
+    app.setPath('userData', APP_ROOT);
+    app.setPath('cache', path.join(APP_ROOT, 'cache'));
+    app.setPath('sessionData', path.join(APP_ROOT, 'session-data'));
+    app.setPath('crashDumps', path.join(APP_ROOT, 'crash-dumps'));
+    app.setPath('logs', path.join(APP_ROOT, 'logs'));
+    app.setPath('temp', path.join(APP_ROOT, 'temp'));
+
+    appLog('INFO', `[Path] 存储路径: ${APP_ROOT} (${app.isPackaged ? '生产环境' : '开发环境'})`);
+  } catch (e) {
+    // 安装目录不可写（如 Program Files 无管理员权限），回退到系统默认路径
+    console.warn('[Path] 安装目录不可写，使用默认 AppData 路径:', e.message);
+    appLog('WARN', `[Path] 安装目录不可写 (${APP_ROOT})，回退到 AppData`);
+    // Electron 默认 userData 路径为 %APPDATA%\<productName>，此路径始终可写
   }
-  // 开发环境：不重定向，使用 Electron 默认 userData 路径
-  // 即 AppData\Roaming\desktop-organizer\，与 PRD 8.5 节定义一致
 
   startApp();
 }
@@ -1329,8 +1418,8 @@ function formatRelativeTime(timestamp) {
 }
 
 app.whenReady().then(() => {
-  // 使用应用安装目录（.exe 所在目录）下的 datas 和 icons 文件夹
-  // 注意：app.whenReady() 之前已通过 app.setPath('userData') 将 userData 重定向到安装目录（如可写）。
+  // 基于 app.getPath('userData') 获取存储根路径（已通过 app.setPath 重定向到安装目录）
+  // 数据目录结构：{APP_ROOT}/datas/、{APP_ROOT}/icons/ 等
   const DATA_ROOT = app.getPath('userData');
 
   DATA_DIR = path.join(DATA_ROOT, 'datas');
@@ -1342,6 +1431,14 @@ app.whenReady().then(() => {
   fs.ensureDirSync(DATA_DIR);
   fs.ensureDirSync(ICON_CACHE_DIR);
   fs.ensureDirSync(BACKUP_DIR);
+
+  // 检测 PowerShell 可用性
+  const psOk = detectPowerShell();
+  if (!psOk && mainWindow) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.send('powershell-unavailable');
+    });
+  }
 
   appLog('INFO', '应用启动');
 

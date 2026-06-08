@@ -69,3 +69,7 @@ coverage/
 .pnpm-store/
 .eslintcache
 .stylelintcache
+
+icons/
+datas/
+session-data/
