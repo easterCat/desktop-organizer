@@ -769,7 +769,8 @@ function hideCollectedIconsFn() {
   saveConfig(config);
 
   addActivity('system', `隐藏 ${count} 个已整理的桌面图标`);
-  // 不通知 box-updated，因为面板和浮动窗口数据不变
+  // 通知主窗口重新加载配置（hiddenItems 已变化，否则下次刷新时渲染器用旧的空 hiddenItems 会导致 item 被误删）
+  notifyMainWindow('box-updated');
 
   return { ok: true, count };
 }
@@ -809,7 +810,8 @@ function showCollectedIconsFn() {
   saveConfig(config);
 
   addActivity('system', `恢复 ${count} 个桌面图标`);
-  // 不通知 box-updated，因为面板和浮动窗口数据不变
+  // 通知主窗口重新加载配置（hiddenItems 已清空，保持渲染器内存与磁盘一致）
+  notifyMainWindow('box-updated');
 
   return { ok: true, count };
 }

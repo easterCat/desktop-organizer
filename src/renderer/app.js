@@ -1349,7 +1349,12 @@ function bindSettingsModal() {
     }
   });
 
-  function closeModal() { modal.style.display = 'none'; }
+  async function closeModal() {
+    modal.style.display = 'none';
+    // 重新加载配置，确保渲染器内存与磁盘一致（设置中可能修改了 hiddenItems 等字段）
+    await loadData();
+    render(document.getElementById('search-input').value);
+  }
 
   closeBtn.addEventListener('click', closeModal);
   cancelBtn.addEventListener('click', closeModal);
