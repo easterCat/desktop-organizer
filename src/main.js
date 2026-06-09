@@ -219,6 +219,7 @@ function quickOrganize() {
     if (bestScore >= 3 && matchCount === 1) {
       // 精确匹配且唯一 → 自动归入
       config.boxes[bestBoxIdx].items.push(item);
+      if (config.hideCollectedIcons) hideSingleItem(config, item);
       moved++;
     } else if (bestScore === 2 && matchCount === 1) {
       // 盒子名包含快捷方式名，仅一个盒子匹配 → 候选建议
@@ -724,47 +725,97 @@ function notifyAllDesktopBoxes() {
 
 // ============ 隐藏/显示已收纳桌面图标 ============
 
-function hideCollectedIconsFn() {
-  const config = loadConfig();
+// --- 单项目隐藏/恢复（核心函数） ---
+
+/**
+ * 将单个已收纳项目的桌面快捷方式移动到备份目录
+ * @param {object} config - 当前配置对象（调用者负责最终 saveConfig）
+ * @param {object} item - 要隐藏的项目 { path, ... }
+ * @returns {boolean} 是否成功隐藏
+ */
+function hideSingleItem(config, item) {
+  const desktopPath = item.path;
+  if (!desktopPath) return false;
 
   fs.ensureDirSync(BACKUP_DIR);
-  let count = 0;
-  // 保留已有 hiddenItems，追加新隐藏的项
-  const hiddenItems = Array.isArray(config.hiddenItems) ? [...config.hiddenItems] : [];
+  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
   const alreadyHidden = new Set(hiddenItems.map(h => h.originalPath || h.path));
 
+  if (alreadyHidden.has(desktopPath)) return false; // 已在 backup 中
+  if (!fs.existsSync(desktopPath)) return false;    // 文件不存在（可能已手动删除）
+
+  const fileName = path.basename(desktopPath);
+  const backupPath = path.join(BACKUP_DIR, fileName);
+
+  // 避免覆盖 backup 中已有的同名文件（加时间戳后缀）
+  let finalBackupPath = backupPath;
+  if (fs.existsSync(backupPath)) {
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    finalBackupPath = path.join(BACKUP_DIR, `${base}_${Date.now()}${ext}`);
+  }
+
+  try {
+    fs.moveSync(desktopPath, finalBackupPath);
+    config.hiddenItems = [...hiddenItems, { originalPath: desktopPath, backupPath: finalBackupPath }];
+    return true;
+  } catch (e) {
+    appLog('ERROR', '隐藏单个图标失败:', desktopPath, e.message);
+    return false;
+  }
+}
+
+/**
+ * 将单个项目的快捷方式从备份目录恢复到桌面
+ * @param {object} config - 当前配置对象（调用者负责最终 saveConfig）
+ * @param {object} item - 要恢复的项目 { path, ... }
+ * @returns {boolean} 是否成功恢复
+ */
+function restoreSingleItem(config, item) {
+  const desktopPath = item.path;
+  if (!desktopPath) return false;
+
+  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
+  const idx = hiddenItems.findIndex(h => (h.originalPath || h.path) === desktopPath);
+  if (idx < 0) return false; // 不在隐藏列表中
+
+  const record = hiddenItems[idx];
+  const backupPath = record.backupPath || record.tempPath;
+
+  if (!backupPath || !fs.existsSync(backupPath)) {
+    appLog('WARN', '备份文件不存在，无法恢复:', backupPath);
+    config.hiddenItems = hiddenItems.filter((_, i) => i !== idx);
+    return false;
+  }
+
+  if (fs.existsSync(desktopPath)) {
+    appLog('WARN', '桌面已存在同名文件，跳过恢复:', desktopPath);
+    return false;
+  }
+
+  try {
+    fs.moveSync(backupPath, desktopPath);
+    config.hiddenItems = hiddenItems.filter((_, i) => i !== idx);
+    return true;
+  } catch (e) {
+    appLog('ERROR', '恢复单个图标失败:', backupPath, e.message);
+    return false;
+  }
+}
+
+// --- 批量隐藏/显示（启动时 & 设置开关） ---
+
+function hideCollectedIconsFn() {
+  const config = loadConfig();
+  let count = 0;
+
   // 仅移动已收纳到盒子中的图标（PRD §5.6）
-  const itemsToHide = [];
   for (const box of config.boxes) {
-    for (const item of box.items) itemsToHide.push(item);
-  }
-
-  for (const item of itemsToHide) {
-    const desktopPath = item.path;
-    if (alreadyHidden.has(desktopPath)) continue; // 已在 backup 中，跳过
-    if (!fs.existsSync(desktopPath)) continue;
-
-    const fileName = path.basename(desktopPath);
-    const backupPath = path.join(BACKUP_DIR, fileName);
-
-    // 避免覆盖 backup 中已有的同名文件（加时间戳后缀）
-    let finalBackupPath = backupPath;
-    if (fs.existsSync(backupPath)) {
-      const ext = path.extname(fileName);
-      const base = path.basename(fileName, ext);
-      finalBackupPath = path.join(BACKUP_DIR, `${base}_${Date.now()}${ext}`);
-    }
-
-    try {
-      fs.moveSync(desktopPath, finalBackupPath);
-      hiddenItems.push({ originalPath: desktopPath, backupPath: finalBackupPath });
-      count++;
-    } catch (e) {
-      appLog('ERROR', '隐藏图标失败:', desktopPath, e.message);
+    for (const item of box.items) {
+      if (hideSingleItem(config, item)) count++;
     }
   }
 
-  config.hiddenItems = hiddenItems;
   config.hideCollectedIcons = true;
   saveConfig(config);
 
@@ -782,29 +833,29 @@ function showCollectedIconsFn() {
 
   let count = 0;
 
-  for (const record of hiddenItems) {
-    const backupPath = record.backupPath || record.tempPath;
+  // 优先恢复仍在盒子中的项目（通过 restoreSingleItem 精确匹配）
+  const allBoxItems = [];
+  for (const box of config.boxes) {
+    for (const item of box.items) allBoxItems.push(item);
+  }
+  for (const item of allBoxItems) {
+    if (restoreSingleItem(config, item)) count++;
+  }
+
+  // 处理残留的 hiddenItems 记录（项目已被移出所有盒子但仍记录在 hiddenItems 中）
+  const remaining = [...(config.hiddenItems || [])];
+  for (const record of remaining) {
     const desktopPath = record.originalPath || record.path;
-
-    if (!backupPath || !fs.existsSync(backupPath)) {
-      appLog('WARN', '备份文件不存在，无法恢复:', backupPath);
-      continue;
-    }
-
+    const backupPath = record.backupPath || record.tempPath;
+    if (!backupPath || !fs.existsSync(backupPath)) continue;
+    if (fs.existsSync(desktopPath)) continue;
     try {
-      // 如果桌面上已有同名文件，跳过
-      if (fs.existsSync(desktopPath)) {
-        appLog('WARN', '桌面已存在同名文件，跳过恢复:', desktopPath);
-        continue;
-      }
-
       fs.moveSync(backupPath, desktopPath);
       count++;
     } catch (e) {
       appLog('ERROR', '恢复图标失败:', backupPath, e.message);
     }
   }
-
   config.hiddenItems = [];
   config.hideCollectedIcons = false;
   saveConfig(config);
@@ -828,6 +879,32 @@ ipcMain.handle('load-config', async () => loadConfig());
 ipcMain.handle('save-config', async (_, config) => {
   // 更新最后整理时间
   config.lastOrganizeTime = config.lastOrganizeTime || Date.now();
+
+  // 检测盒子项目的增删变化，自动处理桌面图标隐藏/恢复
+  if (config.hideCollectedIcons) {
+    const oldConfig = loadConfig();
+    const oldBoxPaths = new Set();
+    for (const box of oldConfig.boxes) {
+      for (const item of box.items) oldBoxPaths.add(item.path);
+    }
+    const newBoxPaths = new Set();
+    for (const box of config.boxes) {
+      for (const item of box.items) newBoxPaths.add(item.path);
+    }
+    // 新增到盒子中的项目 → 隐藏
+    for (const box of config.boxes) {
+      for (const item of box.items) {
+        if (!oldBoxPaths.has(item.path)) hideSingleItem(config, item);
+      }
+    }
+    // 从盒子中移出的项目 → 恢复
+    for (const box of oldConfig.boxes) {
+      for (const item of box.items) {
+        if (!newBoxPaths.has(item.path)) restoreSingleItem(config, item);
+      }
+    }
+  }
+
   saveConfig(config);
   notifyAllDesktopBoxes();
   return true;
@@ -950,34 +1027,12 @@ ipcMain.handle('delete-box', async (_, boxIdx) => {
   const box = config.boxes[boxIdx];
   if (!box) return { ok: false, error: '收纳盒不存在' };
 
-  // 将盒子内的 items 移回未分类
+  // 将盒子内的 items 移回未分类，同时恢复被隐藏的图标
+  let restored = 0;
   for (const item of box.items) {
     config.unassigned.push(item);
+    if (restoreSingleItem(config, item)) restored++;
   }
-
-  // 恢复该盒子中被隐藏的图标
-  let restored = 0;
-  const boxItemPaths = new Set(box.items.map(i => i.path));
-  const remainingHidden = [];
-  for (const record of (config.hiddenItems || [])) {
-    const origPath = record.originalPath || record.path;
-    if (boxItemPaths.has(origPath)) {
-      // 该图标属于被删除的盒子，恢复到桌面
-      const backupPath = record.backupPath || record.tempPath;
-      if (backupPath && fs.existsSync(backupPath)) {
-        try {
-          fs.moveSync(backupPath, origPath);
-          restored++;
-        } catch (e) {
-          appLog('ERROR', '恢复隐藏图标失败:', origPath, e.message);
-          remainingHidden.push(record); // 恢复失败则保留记录
-        }
-      }
-    } else {
-      remainingHidden.push(record);
-    }
-  }
-  config.hiddenItems = remainingHidden;
 
   // 删除收纳盒
   config.boxes.splice(boxIdx, 1);
@@ -1181,6 +1236,7 @@ ipcMain.handle('desktop-box:remove-item', async (event, itemPath) => {
   if (idx >= 0) {
     const [item] = box.items.splice(idx, 1);
     config.unassigned.push(item);
+    if (config.hideCollectedIcons) restoreSingleItem(config, item);
     saveConfig(config);
     notifyDesktopBox(boxId);
     notifyMainWindow('box-updated');
@@ -1216,6 +1272,7 @@ ipcMain.handle('desktop-box:add-item', async (event, data) => {
       const box = config.boxes.find(b => b.id === boxId);
       if (box) {
         box.items.push(item);
+        if (config.hideCollectedIcons) hideSingleItem(config, item);
         saveConfig(config);
         notifyDesktopBox(boxId);
         notifyMainWindow('box-updated');
@@ -1254,7 +1311,9 @@ ipcMain.handle('desktop-box:add-item', async (event, data) => {
         if (!found) {
           const unIdx = config.unassigned.findIndex(i => i.path === filePath);
           if (unIdx >= 0) {
-            destBox.items.push(config.unassigned.splice(unIdx, 1)[0]);
+            const movedItem = config.unassigned.splice(unIdx, 1)[0];
+            destBox.items.push(movedItem);
+            if (config.hideCollectedIcons) hideSingleItem(config, movedItem);
             dropCount++;
           } else {
             // 新文件，创建条目
