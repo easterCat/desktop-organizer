@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-06-09
+
+### Changed
+
+- 版本更新至 1.5.7
+
 ## [1.5.6] - 2026-06-09
 
 ### Changed
@@ -15,7 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- 版本更新至 1.5.3
+- **Permanent Icon Hide (F-19)** — 已收纳的桌面图标隐藏功能改为永久启用；移除设置中的开关和 `toggle-hide-icons` / `get-hide-status` IPC 通道；`config.hideCollectedIcons` 固定为 `true`
+- **One-Key Collect (F-20)** — 工具栏“刷新”按钮改为“一键收纳”（`Ctrl+R`）；点击后扫描桌面、同步未分类区，然后将盒子内图标剪切移动到 `icons/shortcuts/` 备份目录（新增 `collect-desktop` IPC 通道）
+- **One-Key Restore (F-06a)** — 用“一键还原”（`Ctrl+Z`）替换原有的 30 秒撤销机制；工具栏 ↩ 按钮将备份目录中所有隐藏图标剪切移动回桌面原位，并清空 `config.hiddenItems[]`；移除旧的 `undo-last-action` IPC 通道和 `undoStack` 快照逻辑
+- **Simplified Hide Logic** — 快捷方式被收纳到盒子（拖拽、快速整理、浮窗拖入）时自动剪切移动到 `icons/shortcuts/`；从盒子移出时自动恢复到桌面；不再需要单独的开关操作
+- **PRD Sync** — 同步更新 PRD v1.5.3 章节 §3.2、§4.1、§5.6、§5.10、§5.11、§8.2、§9.1、§9.2、§6、§12.4
+
+### Removed
+
+- **Undo Stack** — 移除逐操作撤销快照（`undoStack`）和 30 秒有效期窗口；`undo-last-action` IPC 通道不再存在
+- **Hide Toggle IPC** — 移除 `toggle-hide-icons` 和 `get-hide-status` IPC 通道；图标隐藏不再是用户可配置项
 
 ## [1.5.2] - 2026-06-07
 
