@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('boxApi', {
   // 打开文件位置
   openInExplorer: (p, targetPath) => ipcRenderer.invoke('open-in-explorer', p, targetPath),  // 从收纳盒移除快捷方式
   removeItem: (itemPath) => ipcRenderer.invoke('desktop-box:remove-item', itemPath),
+  // 还原单个图标到桌面
+  restoreSingle: (item) => ipcRenderer.invoke('restore-single', item),
   // 添加快捷方式到收纳盒（从拖拽来）
   addItem: (itemData) => ipcRenderer.invoke('desktop-box:add-item', itemData),
   // 关闭桌面收纳盒

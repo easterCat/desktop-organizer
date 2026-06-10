@@ -23,9 +23,9 @@
   <!-- 工具栏 -->
   <div class="toolbar">
     <button type="button" class="btn-create" id="btn-add-box">+ 新建</button>
-    <button type="button" class="btn-icon-only" id="btn-refresh" title="刷新">↻</button>
+    <button type="button" class="btn-icon-only" id="btn-refresh" title="一键收纳">📥</button>
     <button type="button" class="btn-icon-only" id="btn-quick-organize" title="快速整理 (Ctrl+Shift+O)">⚡</button>
-    <button type="button" class="btn-icon-only" id="btn-undo" title="撤销 (Ctrl+Z)">↩</button>
+    <button type="button" class="btn-icon-only" id="btn-undo" title="一键还原 (Ctrl+Z)">↩</button>
     <div class="toolbar-sep"></div>
     <div class="search-wrap">
       <svg class="search-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>
@@ -33,20 +33,10 @@
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-right">
-      <button type="button" class="btn-icon-only" id="btn-batch" title="批量操作">☑</button>
-      <button type="button" class="btn-icon-only" id="btn-export" title="导出配置">📤</button>
-      <button type="button" class="btn-icon-only" id="btn-import" title="导入配置">📥</button>
+      <!-- F-29/F-31: 导出/导入/批量按钮已移除 -->
       <button type="button" class="btn-icon-only" id="btn-activity-log" title="活动日志">📋</button>
       <button type="button" class="btn-icon-only" id="btn-settings" title="设置">⚙️</button>
     </div>
-  </div>
-
-  <!-- F-31: 批量操作栏 -->
-  <div class="batch-bar" id="batch-bar" style="display:none;">
-    <span class="batch-info" id="batch-count">已选 0 项</span>
-    <button type="button" class="btn-icon-only" id="btn-batch-move" title="批量移入收纳盒" disabled>📥 移入</button>
-    <button type="button" class="btn-icon-only" id="btn-batch-remove" title="批量从盒子移出到未分类" disabled>📤 移出</button>
-    <button type="button" class="btn-icon-only" id="btn-batch-cancel" title="取消批量模式">✕</button>
   </div>
 
   <!-- 主内容 -->
@@ -137,6 +127,8 @@
     <div class="ctx-item" data-action="open">打开</div>
     <div class="ctx-item" data-action="explorer">打开文件位置</div>
     <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="restore">还原到桌面</div>
+    <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="move">移动到...</div>
     <div class="ctx-item ctx-danger" data-action="remove">移出收纳盒</div>
   </div>
@@ -169,16 +161,6 @@
           </div>
         </div>
         <div class="field">
-          <span class="field-label">桌面图标管理</span>
-          <div class="toggle-row">
-            <span class="toggle-label">隐藏已收纳的桌面图标</span>
-            <button type="button" class="toggle-switch" id="btn-hide-icons">
-              <span class="toggle-knob"></span>
-            </button>
-          </div>
-          <div class="toggle-hint">开启后，已收纳的图标将从桌面移入临时文件夹，关闭后恢复</div>
-        </div>
-        <div class="field">
           <span class="field-label">存储位置</span>
           <div class="settings-info">
             <div class="info-row">
@@ -201,12 +183,6 @@
           <div class="toggle-hint">清除所有图标缓存并重新提取，首次加载会稍慢</div>
         </div>
         -->
-        <!-- F-34: 无效快捷方式清理 -->
-        <div class="field">
-          <span class="field-label">失效管理</span>
-          <button type="button" class="btn-ghost" id="btn-cleanup-invalid" style="width:100%;text-align:center;">清理无效快捷方式</button>
-          <div class="toggle-hint">检测并移除目标不存在的快捷方式</div>
-        </div>
         <div class="field">
           <span class="field-label">应用信息</span>
           <div class="settings-info">

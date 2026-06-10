@@ -192,6 +192,8 @@ function showContextMenu(e, itemPath, itemName) {
     <div class="ctx-item" data-action="open">打开</div>
     <div class="ctx-item" data-action="explorer">打开文件位置</div>
     <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="restore">还原到桌面</div>
+    <div class="ctx-sep"></div>
     <div class="ctx-item ctx-danger" data-action="remove">移出收纳盒</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="reset-pos">重置位置</div>
@@ -215,6 +217,17 @@ function showContextMenu(e, itemPath, itemName) {
       } else if (action === 'explorer') {
         const res = await window.boxApi.openInExplorer(itemPath, targetPath);
         if (res && !res.ok) console.warn('[box] 定位失败:', res.error);
+      } else if (action === 'restore') {
+        // 还原到桌面
+        const itemData = boxData.items.find(i => i.path === itemPath);
+        if (itemData) {
+          const res = await window.boxApi.restoreSingle(itemData);
+          if (res && res.ok) {
+            // 数据会通过 onDataUpdate 自动刷新
+          } else if (res && !res.ok) {
+            console.warn('[box] 还原失败:', res.error);
+          }
+        }
       } else if (action === 'remove') {
         await window.boxApi.removeItem(itemPath);
       } else if (action === 'reset-pos') {

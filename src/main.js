@@ -39,9 +39,6 @@ let tray = null;
 let activityLog = [];
 const MAX_LOG_ENTRIES = 200;
 
-// F-06a: 撤销栈（仅保留最近1条操作快照，30秒有效窗口）
-const UNDO_EXPIRY_MS = 30000;
-let undoStack = null; // { type, snapshot, timestamp }
 
 function addActivity(type, message, detail = '') {
   const entry = {
@@ -131,39 +128,6 @@ function getSystemInfo() {
   return info;
 }
 
-// --- F-06a: 撤销操作 ---
-function saveUndoSnapshot(config) {
-  // 保存当前 unassigned 和 boxes 的深拷贝作为撤销快照
-  undoStack = {
-    type: 'organize',
-    snapshot: JSON.parse(JSON.stringify({
-      unassigned: config.unassigned,
-      boxes: config.boxes.map(b => ({ id: b.id, items: b.items }))
-    })),
-    timestamp: Date.now()
-  };
-}
-
-function undoLastAction() {
-  if (!undoStack) return { ok: false, error: '无可撤销操作' };
-  if (Date.now() - undoStack.timestamp > UNDO_EXPIRY_MS) {
-    undoStack = null;
-    return { ok: false, error: '撤销已过期（30秒）' };
-  }
-  const config = loadConfig();
-  // 恢复 unassigned 和各 box 的 items
-  config.unassigned = undoStack.snapshot.unassigned;
-  for (const snapshotBox of undoStack.snapshot.boxes) {
-    const box = config.boxes.find(b => b.id === snapshotBox.id);
-    if (box) box.items = snapshotBox.items;
-  }
-  saveConfig(config);
-  undoStack = null;
-  addActivity('organize', '撤销上一次操作');
-  notifyAllDesktopBoxes();
-  return { ok: true };
-}
-
 // 计算快捷方式名称与盒子名称的匹配分数（PRD §5.5 四级评分体系）
 // 得分 3：精确匹配（名称完全相等，不区分大小写）
 // 得分 2：盒子名包含快捷方式名
@@ -194,9 +158,6 @@ function quickOrganize() {
   const config = loadConfig();
   if (config.boxes.length === 0 || config.unassigned.length === 0) return { moved: 0, candidates: [] };
 
-  // 保存撤销快照
-  saveUndoSnapshot(config);
-
   let moved = 0;
   const candidates = []; // 候选建议（子串匹配，需用户确认）
   const remaining = [];
@@ -219,7 +180,8 @@ function quickOrganize() {
     if (bestScore >= 3 && matchCount === 1) {
       // 精确匹配且唯一 → 自动归入
       config.boxes[bestBoxIdx].items.push(item);
-      if (config.hideCollectedIcons) hideSingleItem(config, item);
+      const backupPath = hideSingleItem(config, item);
+      if (backupPath) item.path = backupPath;
       moved++;
     } else if (bestScore === 2 && matchCount === 1) {
       // 盒子名包含快捷方式名，仅一个盒子匹配 → 候选建议
@@ -519,49 +481,6 @@ function enrichShortcut(shortcut) {
   return shortcut;
 }
 
-// F-34: 检测无效快捷方式（目标不存在）
-function detectInvalidShortcuts() {
-  const config = loadConfig();
-  let invalidCount = 0;
-  const allItems = [...config.unassigned];
-  for (const box of config.boxes) allItems.push(...box.items);
-
-  for (const item of allItems) {
-    const isInvalid = !item.targetPath || !fs.existsSync(item.targetPath);
-    if (item.invalid !== isInvalid) {
-      item.invalid = isInvalid;
-      invalidCount++;
-    }
-  }
-
-  if (invalidCount > 0) saveConfig(config);
-  return { invalidCount, total: allItems.length };
-}
-
-// F-34: 批量清理无效快捷方式
-function cleanupInvalidShortcuts() {
-  const config = loadConfig();
-  let removed = 0;
-
-  // 从 unassigned 中移除无效项
-  const before = config.unassigned.length;
-  config.unassigned = config.unassigned.filter(item => !item.invalid);
-  removed += before - config.unassigned.length;
-
-  // 从各 box 中移除无效项
-  for (const box of config.boxes) {
-    const beforeBox = box.items.length;
-    box.items = box.items.filter(item => !item.invalid);
-    removed += beforeBox - box.items.length;
-  }
-
-  if (removed > 0) {
-    saveConfig(config);
-    addActivity('system', `清理 ${removed} 个无效快捷方式`);
-  }
-  return { removed };
-}
-
 // ============ 桌面浮动窗口管理 ============
 
 // F-16b: 检查坐标是否在任一显示器可见区域内
@@ -731,18 +650,25 @@ function notifyAllDesktopBoxes() {
  * 将单个已收纳项目的桌面快捷方式移动到备份目录
  * @param {object} config - 当前配置对象（调用者负责最终 saveConfig）
  * @param {object} item - 要隐藏的项目 { path, ... }
- * @returns {boolean} 是否成功隐藏
+ * @returns {string|null} 实际使用的备份路径，失败或已隐藏返回 null
  */
 function hideSingleItem(config, item) {
   const desktopPath = item.path;
-  if (!desktopPath) return false;
+  if (!desktopPath) return null;
 
   fs.ensureDirSync(BACKUP_DIR);
   const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
   const alreadyHidden = new Set(hiddenItems.map(h => h.originalPath || h.path));
 
-  if (alreadyHidden.has(desktopPath)) return false; // 已在 backup 中
-  if (!fs.existsSync(desktopPath)) return false;    // 文件不存在（可能已手动删除）
+  if (alreadyHidden.has(desktopPath)) return null; // 已在 backup 中
+  if (!fs.existsSync(desktopPath)) return null;    // 文件不存在（可能已手动删除）
+
+  // 如果文件已在备份目录中，跳过移动，直接返回当前路径（避免重复备份加时间戳后缀）
+  const resolvedBackupDir = path.resolve(BACKUP_DIR);
+  const resolvedItemPath = path.resolve(desktopPath);
+  if (resolvedItemPath.startsWith(resolvedBackupDir + path.sep) || resolvedItemPath === resolvedBackupDir) {
+    return desktopPath;
+  }
 
   const fileName = path.basename(desktopPath);
   const backupPath = path.join(BACKUP_DIR, fileName);
@@ -758,10 +684,10 @@ function hideSingleItem(config, item) {
   try {
     fs.moveSync(desktopPath, finalBackupPath);
     config.hiddenItems = [...hiddenItems, { originalPath: desktopPath, backupPath: finalBackupPath }];
-    return true;
+    return finalBackupPath;
   } catch (e) {
     appLog('ERROR', '隐藏单个图标失败:', desktopPath, e.message);
-    return false;
+    return null;
   }
 }
 
@@ -826,47 +752,6 @@ function hideCollectedIconsFn() {
   return { ok: true, count };
 }
 
-function showCollectedIconsFn() {
-  const config = loadConfig();
-  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
-  if (hiddenItems.length === 0 && !config.hideCollectedIcons) return { ok: true, count: 0 };
-
-  let count = 0;
-
-  // 优先恢复仍在盒子中的项目（通过 restoreSingleItem 精确匹配）
-  const allBoxItems = [];
-  for (const box of config.boxes) {
-    for (const item of box.items) allBoxItems.push(item);
-  }
-  for (const item of allBoxItems) {
-    if (restoreSingleItem(config, item)) count++;
-  }
-
-  // 处理残留的 hiddenItems 记录（项目已被移出所有盒子但仍记录在 hiddenItems 中）
-  const remaining = [...(config.hiddenItems || [])];
-  for (const record of remaining) {
-    const desktopPath = record.originalPath || record.path;
-    const backupPath = record.backupPath || record.tempPath;
-    if (!backupPath || !fs.existsSync(backupPath)) continue;
-    if (fs.existsSync(desktopPath)) continue;
-    try {
-      fs.moveSync(backupPath, desktopPath);
-      count++;
-    } catch (e) {
-      appLog('ERROR', '恢复图标失败:', backupPath, e.message);
-    }
-  }
-  config.hiddenItems = [];
-  config.hideCollectedIcons = false;
-  saveConfig(config);
-
-  addActivity('system', `恢复 ${count} 个桌面图标`);
-  // 通知主窗口重新加载配置（hiddenItems 已清空，保持渲染器内存与磁盘一致）
-  notifyMainWindow('box-updated');
-
-  return { ok: true, count };
-}
-
 // ============ IPC Handlers ============
 
 // --- 主窗口 ---
@@ -881,27 +766,28 @@ ipcMain.handle('save-config', async (_, config) => {
   config.lastOrganizeTime = config.lastOrganizeTime || Date.now();
 
   // 检测盒子项目的增删变化，自动处理桌面图标隐藏/恢复
-  if (config.hideCollectedIcons) {
-    const oldConfig = loadConfig();
-    const oldBoxPaths = new Set();
-    for (const box of oldConfig.boxes) {
-      for (const item of box.items) oldBoxPaths.add(item.path);
-    }
-    const newBoxPaths = new Set();
-    for (const box of config.boxes) {
-      for (const item of box.items) newBoxPaths.add(item.path);
-    }
-    // 新增到盒子中的项目 → 隐藏
-    for (const box of config.boxes) {
-      for (const item of box.items) {
-        if (!oldBoxPaths.has(item.path)) hideSingleItem(config, item);
+  const oldConfig = loadConfig();
+  const oldBoxPaths = new Set();
+  for (const box of oldConfig.boxes) {
+    for (const item of box.items) oldBoxPaths.add(item.path);
+  }
+  const newBoxPaths = new Set();
+  for (const box of config.boxes) {
+    for (const item of box.items) newBoxPaths.add(item.path);
+  }
+  // 新增到盒子中的项目 → 隐藏，并同步 item.path 到实际备份路径
+  for (const box of config.boxes) {
+    for (const item of box.items) {
+      if (!oldBoxPaths.has(item.path)) {
+        const backupPath = hideSingleItem(config, item);
+        if (backupPath) item.path = backupPath;
       }
     }
-    // 从盒子中移出的项目 → 恢复
-    for (const box of oldConfig.boxes) {
-      for (const item of box.items) {
-        if (!newBoxPaths.has(item.path)) restoreSingleItem(config, item);
-      }
+  }
+  // 从盒子中移出的项目 → 恢复
+  for (const box of oldConfig.boxes) {
+    for (const item of box.items) {
+      if (!newBoxPaths.has(item.path)) restoreSingleItem(config, item);
     }
   }
 
@@ -1014,12 +900,6 @@ ipcMain.handle('quick-organize', async () => {
   return result;
 });
 
-// F-06a: 撤销快照
-ipcMain.handle('save-undo-snapshot', async () => {
-  const config = loadConfig();
-  saveUndoSnapshot(config);
-  return true;
-});
 
 // F-06: 删除收纳盒（含隐藏图标恢复）
 ipcMain.handle('delete-box', async (_, boxIdx) => {
@@ -1043,87 +923,31 @@ ipcMain.handle('delete-box', async (_, boxIdx) => {
   return { ok: true, restored };
 });
 
-// F-06a: 撤销操作
-ipcMain.handle('undo', async () => {
-  const result = undoLastAction();
-  if (result.ok) notifyMainWindow('box-updated');
-  return result;
-});
 
-// F-34: 无效快捷方式检测
-ipcMain.handle('detect-invalid-shortcuts', async () => detectInvalidShortcuts());
-ipcMain.handle('cleanup-invalid-shortcuts', async () => {
-  const result = cleanupInvalidShortcuts();
-  notifyMainWindow('box-updated');
-  return result;
-});
+// 还原单个图标到桌面
+ipcMain.handle('restore-single', async (_, item) => {
+  const config = loadConfig();
+  // restoreSingleItem 会删除 hiddenItems 记录，提前查出备份路径
+  // unassigned 中存的是备份路径而非桌面路径，需要用备份路径匹配
+  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
+  const hiddenRecord = hiddenItems.find(h => (h.originalPath || h.path) === item.path);
+  const backupPath = hiddenRecord ? (hiddenRecord.backupPath || hiddenRecord.tempPath) : null;
 
-ipcMain.handle('can-undo', async () => {
-  if (!undoStack) return false;
-  return (Date.now() - undoStack.timestamp) <= UNDO_EXPIRY_MS;
-});
-
-// F-29: 配置导出
-ipcMain.handle('export-config', async () => {
-  const result = await dialog.showSaveDialog(mainWindow, {
-    title: '导出配置',
-    defaultPath: 'desktop-organizer-config.json',
-    filters: [{ name: 'JSON', extensions: ['json'] }]
-  });
-  if (result.canceled || !result.filePath) return { ok: false };
-  try {
-    const config = loadConfig();
-    // 导出时清除 iconData（太大，不含图标数据）
-    const exportData = JSON.parse(JSON.stringify(config));
-    for (const box of exportData.boxes) {
-      for (const item of box.items) item.iconData = null;
-    }
-    for (const item of exportData.unassigned) item.iconData = null;
-    fs.writeJsonSync(result.filePath, exportData, { spaces: 2 });
-    addActivity('system', '配置已导出');
-    return { ok: true, path: result.filePath };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
-
-// F-29: 配置导入
-ipcMain.handle('import-config', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: '导入配置',
-    filters: [{ name: 'JSON', extensions: ['json'] }],
-    properties: ['openFile']
-  });
-  if (result.canceled || result.filePaths.length === 0) return { ok: false };
-  try {
-    const importData = fs.readJsonSync(result.filePaths[0]);
-    if (!importData || !Array.isArray(importData.boxes)) {
-      return { ok: false, error: '无效的配置文件' };
-    }
-    const config = loadConfig();
-    // 合并盒子：跳过同名盒子，追加新盒子
-    const existingNames = new Set(config.boxes.map(b => b.name));
-    let imported = 0;
-    for (const box of importData.boxes) {
-      if (existingNames.has(box.name)) continue;
-      // 为导入的盒子生成新 id
-      box.id = 'box_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-      box.onDesktop = false; // 导入的盒子不在桌面显示
-      if (!box.displayMode) box.displayMode = 'panel';
-      if (!box.sortMode) box.sortMode = 'manual';
-      if (!box.sortOrder) box.sortOrder = [];
-      if (!box.createdTime) box.createdTime = Date.now();
-      config.boxes.push(box);
-      imported++;
-    }
+  const restored = restoreSingleItem(config, item);
+  if (restored) {
+    // 同时从未分类列表中移除，避免渲染进程收到 box-updated 后重新加载仍残留
+    const unIdx = backupPath
+      ? config.unassigned.findIndex(u => u.path === backupPath || u.path === item.path)
+      : config.unassigned.findIndex(u => u.path === item.path);
+    if (unIdx >= 0) config.unassigned.splice(unIdx, 1);
     saveConfig(config);
-    addActivity('system', `导入配置：${imported} 个收纳盒`);
     notifyMainWindow('box-updated');
-    return { ok: true, imported };
-  } catch (e) {
-    return { ok: false, error: e.message };
+    addActivity('move', `「${item.name}」还原到桌面`);
+    return { ok: true };
   }
+  return { ok: false, error: '还原失败，备份文件可能不存在' };
 });
+
 
 // --- P2: 活动日志 ---
 ipcMain.handle('get-activity-log', async () => activityLog);
@@ -1180,14 +1004,100 @@ ipcMain.handle('open-folder', async (_, folderPath) => {
   }
 });
 
-// --- 隐藏/显示已收纳桌面图标 ---
-ipcMain.handle('toggle-hide-icons', async (_, hide) => {
-  if (hide) return hideCollectedIconsFn();
-  return showCollectedIconsFn();
-});
-ipcMain.handle('get-hide-status', async () => {
+// --- 一键还原：从 shortcuts 备份目录恢复所有图标到桌面 ---
+ipcMain.handle('restore-all', async () => {
   const config = loadConfig();
-  return { hideCollectedIcons: !!config.hideCollectedIcons, hiddenCount: (config.hiddenItems || []).length };
+
+  // 1. 先将盒子中尚未备份的图标也移动到备份目录（保证所有图标都有备份记录）
+  for (const box of config.boxes) {
+    for (const item of box.items) {
+      hideSingleItem(config, item);
+    }
+  }
+
+  // 2. 将所有备份文件还原回桌面原始路径
+  const hiddenItems = Array.isArray(config.hiddenItems) ? [...config.hiddenItems] : [];
+  let count = 0;
+  for (const record of hiddenItems) {
+    const desktopPath = record.originalPath || record.path;
+    const backupPath = record.backupPath || record.tempPath;
+    if (!backupPath || !fs.existsSync(backupPath)) continue;
+    if (fs.existsSync(desktopPath)) continue;
+    try {
+      fs.moveSync(backupPath, desktopPath);
+      count++;
+    } catch (e) {
+      appLog('ERROR', '一键还原失败:', backupPath, e.message);
+    }
+  }
+
+  // 3. 清空未分类区、所有盒子的内容（保留盒子定义）、备份记录
+  config.unassigned = [];
+  for (const box of config.boxes) {
+    box.items = [];
+  }
+  config.hiddenItems = [];
+  saveConfig(config);
+  notifyMainWindow('box-updated');
+  notifyAllDesktopBoxes();
+  addActivity('system', `一键还原：${count} 个图标已恢复到桌面`);
+  return { ok: true, count };
+});
+
+// --- 一键收纳：扫描桌面并将图标剪切移动到 shortcuts 备份目录，同时添加到未分类区 ---
+ipcMain.handle('collect-desktop', async () => {
+  // 1. 扫描桌面快捷方式
+  const shortcuts = readDesktopShortcuts();
+  const config = loadConfig();
+  fs.ensureDirSync(BACKUP_DIR);
+
+  const hiddenItems = Array.isArray(config.hiddenItems) ? config.hiddenItems : [];
+  const alreadyHidden = new Set(hiddenItems.map(h => h.originalPath || h.path));
+
+  // 2. 将桌面快捷方式剪切移动到备份目录，并添加到未分类区（path 使用备份路径）
+  let count = 0;
+  for (const sc of shortcuts) {
+    if (alreadyHidden.has(sc.path)) continue; // 已在备份中
+    if (!fs.existsSync(sc.path)) continue;
+
+    const fileName = path.basename(sc.path);
+    const backupPath = path.join(BACKUP_DIR, fileName);
+    let finalBackupPath = backupPath;
+    if (fs.existsSync(backupPath)) {
+      const ext = path.extname(fileName);
+      const base = path.basename(fileName, ext);
+      finalBackupPath = path.join(BACKUP_DIR, `${base}_${Date.now()}${ext}`);
+    }
+
+    try {
+      fs.moveSync(sc.path, finalBackupPath);
+      config.hiddenItems = [...config.hiddenItems, { originalPath: sc.path, backupPath: finalBackupPath }];
+      // 使用备份路径作为 unassigned 中的 path
+      if (!config.unassigned.find(u => u.path === finalBackupPath)) {
+        config.unassigned.push({
+          name: sc.name, path: finalBackupPath, type: sc.type,
+          targetPath: sc.targetPath || '', iconPath: sc.iconPath || '',
+          iconIndex: sc.iconIndex || 0, url: sc.url || '', iconData: sc.iconData || null
+        });
+      }
+      count++;
+    } catch (e) {
+      appLog('ERROR', '一键收纳移动图标失败:', sc.path, e.message);
+    }
+  }
+
+  // 3. 将盒子内尚未备份的图标也移动到备份目录
+  for (const box of config.boxes) {
+    for (const item of box.items) {
+      const backupPath = hideSingleItem(config, item);
+      if (backupPath) item.path = backupPath;
+    }
+  }
+
+  saveConfig(config);
+  notifyMainWindow('box-updated');
+  addActivity('system', `一键收纳：${count} 个图标已移动到缓存目录`);
+  return { ok: true, count };
 });
 
 // 创建桌面浮动收纳盒
@@ -1236,7 +1146,7 @@ ipcMain.handle('desktop-box:remove-item', async (event, itemPath) => {
   if (idx >= 0) {
     const [item] = box.items.splice(idx, 1);
     config.unassigned.push(item);
-    if (config.hideCollectedIcons) restoreSingleItem(config, item);
+    restoreSingleItem(config, item);
     saveConfig(config);
     notifyDesktopBox(boxId);
     notifyMainWindow('box-updated');
@@ -1272,7 +1182,8 @@ ipcMain.handle('desktop-box:add-item', async (event, data) => {
       const box = config.boxes.find(b => b.id === boxId);
       if (box) {
         box.items.push(item);
-        if (config.hideCollectedIcons) hideSingleItem(config, item);
+        const backupPath = hideSingleItem(config, item);
+        if (backupPath) item.path = backupPath;
         saveConfig(config);
         notifyDesktopBox(boxId);
         notifyMainWindow('box-updated');
@@ -1313,7 +1224,8 @@ ipcMain.handle('desktop-box:add-item', async (event, data) => {
           if (unIdx >= 0) {
             const movedItem = config.unassigned.splice(unIdx, 1)[0];
             destBox.items.push(movedItem);
-            if (config.hideCollectedIcons) hideSingleItem(config, movedItem);
+            const bp = hideSingleItem(config, movedItem);
+            if (bp) movedItem.path = bp;
             dropCount++;
           } else {
             // 新文件，创建条目
@@ -1564,12 +1476,9 @@ app.whenReady().then(() => {
   // 恢复上次的桌面浮动窗口
   const config = loadConfig();
 
-  // 启动时自动隐藏已收纳的桌面图标（如果开关为开启）
-  // hideCollectedIconsFn 内部通过 alreadyHidden 集合避免重复移动
-  if (config.hideCollectedIcons) {
-    appLog('INFO', '启动时检查已收纳桌面图标隐藏状态');
-    hideCollectedIconsFn();
-  }
+  // 启动时自动隐藏已收纳的桌面图标
+  appLog('INFO', '启动时检查已收纳桌面图标隐藏状态');
+  hideCollectedIconsFn();
 
   for (const box of config.boxes) {
     if (box.onDesktop) {

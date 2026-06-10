@@ -1,6 +1,6 @@
 {
   "name": "desktop-organizer",
-  "version": "1.5.7",
+  "version": "1.5.9",
   "description": "Windows桌面图标收纳盒 - 归类整理桌面快捷方式",
   "main": "src/main.js",
   "scripts": {
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.halo.desktop-organizer",
-    "productName": "桌面图标收纳盒",
+    "productName": "Desktop Organizer",
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"

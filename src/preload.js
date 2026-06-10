@@ -41,9 +41,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('activity-updated', handler);
     return () => ipcRenderer.removeListener('activity-updated', handler);
   },
-  // 隐藏/显示已收纳桌面图标
-  toggleHideIcons: (hide) => ipcRenderer.invoke('toggle-hide-icons', hide),
-  getHideStatus: () => ipcRenderer.invoke('get-hide-status'),
+  // 一键还原 / 一键收纳
+  restoreAll: () => ipcRenderer.invoke('restore-all'),
+  collectDesktop: () => ipcRenderer.invoke('collect-desktop'),
   // 缓存路径信息
   getStoragePaths: () => ipcRenderer.invoke('get-storage-paths'),
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
@@ -51,10 +51,8 @@ contextBridge.exposeInMainWorld('api', {
   resetCaches: () => ipcRenderer.invoke('reset-caches'),
   // F-06: 删除收纳盒（含隐藏图标恢复）
   deleteBox: (boxIdx) => ipcRenderer.invoke('delete-box', boxIdx),
-  // F-06a: 撤销操作
-  undo: () => ipcRenderer.invoke('undo'),
-  canUndo: () => ipcRenderer.invoke('can-undo'),
-  saveUndoSnapshot: (type) => ipcRenderer.invoke('save-undo-snapshot', type),
+  // 还原单个图标到桌面
+  restoreSingle: (item) => ipcRenderer.invoke('restore-single', item),
   // F-19: 以管理员身份重启
   restartAsAdmin: () => ipcRenderer.invoke('restart-as-admin'),
   // PRD §12.2: 从备份恢复配置并重启
@@ -71,12 +69,6 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('config-save-failed', handler);
     return () => ipcRenderer.removeListener('config-save-failed', handler);
   },
-  // F-29: 配置导入/导出
-  exportConfig: () => ipcRenderer.invoke('export-config'),
-  importConfig: () => ipcRenderer.invoke('import-config'),
-  // F-34: 无效快捷方式检测
-  detectInvalidShortcuts: () => ipcRenderer.invoke('detect-invalid-shortcuts'),
-  cleanupInvalidShortcuts: () => ipcRenderer.invoke('cleanup-invalid-shortcuts'),
   // PRD §12.3: PowerShell 不可用通知
   onPowershellUnavailable: (cb) => {
     const handler = () => cb();

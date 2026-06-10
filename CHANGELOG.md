@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2026-06-10
+
+### Changed
+
+- 版本更新至 1.5.9
+
+## [1.5.8] - 2026-06-10
+
+### Fixed
+
+- **Restore to Desktop Bug** — 修复从未分类区域右键「还原到桌面」后，桌面图标恢复成功但未分类列表中图标未消失的问题；根因是主进程 `restore-single` 处理器用桌面原始路径匹配 `config.unassigned`（其中存储的是备份路径），导致移除失败，进而 `box-updated` 事件触发渲染进程重新加载时又覆盖了本地修改
+
 ## [1.5.7] - 2026-06-09
 
 ### Changed
