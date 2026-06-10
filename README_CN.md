@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/electron-28.3.3-purple?logo=electron" alt="Electron">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/version-1.5.3-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.5.9-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
  | 版本 | 文件 | 链接 |
  |------|------|------|
- | v1.3.0 (Latest) | 桌面图标收纳盒 Setup 1.3.0.exe | [直接下载](https://github.com/easterCat/desktop-organizer/releases/download/v1.3.0/Setup.1.3.0.exe) |
+ | v1.5.9 (Latest) | 桌面图标收纳盒 Setup 1.5.9.exe | [直接下载](https://github.com/easterCat/desktop-organizer/releases/download/v1.5.9/桌面图标收纳盒.Setup.1.5.9.exe) |
 
  [查看所有版本](https://github.com/easterCat/desktop-organizer/releases)
 
